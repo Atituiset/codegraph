@@ -26,11 +26,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build landing site with Astro
-        uses: withastro/action@v3
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          path: site
           node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      # Not using withastro/action here: it unconditionally uploads a
+      # `github-pages` artifact of site/dist, which collides with the merged
+      # (site + book) artifact uploaded below.
+      - name: Build landing site with Astro
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
       - name: Build source-guide book with mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
