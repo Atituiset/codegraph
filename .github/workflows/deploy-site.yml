@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/book/**'
       - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
@@ -25,11 +26,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build with Astro
+      - name: Build landing site with Astro
         uses: withastro/action@v3
         with:
           path: site
           node-version: 22
+      - name: Build source-guide book with mdBook
+        uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: '0.4.52'
+      - name: Mount book under site output
+        run: |
+          mdbook build docs/book
+          cp -r docs/book/book site/dist/book
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
 
   deploy:
     needs: build

@@ -79,3 +79,6 @@ target-linux/
 .kommandr/kommandr.db
 .kommandr/kommandr.db-wal
 .kommandr/kommandr.db-shm
+
+# mdbook build output
+docs/book/book/
