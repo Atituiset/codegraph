@@ -1,0 +1,284 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>MCP 服务器与进程拓扑 - CodeGraph 源码导读</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph/edit/main/docs/book/src/adv-mcp.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="mcp-服务器与进程拓扑"><a class="header" href="#mcp-服务器与进程拓扑">MCP 服务器与进程拓扑</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:一个本地索引服务,用户是 IDE 和 agent 会话——它们随时被杀、被重启、被挂起。<strong>你的进程怎么知道自己该死、不该死、还是该替别人收尸?</strong> CodeGraph 的答案是一套五层 watchdog 加三模式启动决策。读之前先记住一个视角:这里每个看似过度的机制,都对应一种真实发生过的崩溃形态(括号里的编号就是病历)。</p>
+</blockquote>
+<p><code>src/mcp/</code> 是仓库里最"工程"的部分：协议、daemon、watchdog、worker 池。它回答一个朴素的问题——<strong>当你的用户是一个不靠谱的宿主（IDE）和一个会话式的 agent 时，一个本地服务要怎么活下来？</strong></p>
+<h2 id="三种启动模式"><a class="header" href="#三种启动模式">三种启动模式</a></h2>
+<p><code>MCPServer.start()</code> 的决策树很短：</p>
+<ol>
+<li><code>CODEGRAPH_DAEMON_INTERNAL=1</code> → 本进程就是 detached daemon；</li>
+<li><code>CODEGRAPH_NO_DAEMON=1</code> → direct 模式，单 stdio 会话自给自足；</li>
+<li>找不到 <code>.codegraph/</code> 根 → 也走 direct（没什么可共享的）;</li>
+<li>否则 → <strong>proxy 模式</strong>（默认路径）。</li>
+</ol>
+<p>默认拓扑值得画出来：</p>
+<pre><code>Claude Code ──spawn──▶ proxy 进程 ──socket──▶ detached daemon
+Cursor       ──spawn──▶ proxy 进程 ──socket──▶ （同一个）
+opencode     ──spawn──▶ proxy 进程 ──socket──▶
+</code></pre>
+<p>host 启动的 proxy 是个轻量转发器，daemon 才持有全部重状态（CodeGraph 实例、watcher、查询池）。这样设计的原因（#411）：daemon 是 detached 独立进程组，关掉一个终端不会杀掉其他客户端的会话；而每个 host 仍然拥有自己的 proxy，proxy 带着 PPID watchdog——host 被 SIGKILL 后也能回收自己。<strong>每个组件只负责自己的死亡，不假设别人的生命周期。</strong></p>
+<h2 id="socket-协议与锁仲裁"><a class="header" href="#socket-协议与锁仲裁">socket 协议与锁仲裁</a></h2>
+<p>POSIX 上 daemon 监听 <code>.codegraph/daemon.sock</code>（路径过长则退到 tmpdir），Windows 上是命名管道 <code>\\.\pipe\codegraph-&lt;hash&gt;</code>。连接建立的第一件事是身份握手：</p>
+<pre><code>daemon → 一行 JSON: { codegraph: version, pid, socketPath, protocol: 1 }
+proxy  → 校验版本后开始字节转发；可选回发 { codegraph_client: 1, pid, hostPid }
+</code></pre>
+<p>两个细节体现了防御深度。其一，proxy 自报 pid 是为了 daemon 能做死客户端扫描——Windows 命名管道的 close 事件不可靠（#692），主动 sweep 比被动等待可靠。其二，握手读取器在 finish 前<strong>必须 <code>socket.pause()</code></strong>：移除 data listener 不会让 flowing stream 停下来，unshift 回去的尾字节会在零监听者状态下被丢弃——#662 记录的这个 wedge 让整个会话挂起。</p>
+<p>daemon 单例靠文件锁仲裁，实现是教科书级的原子性操作：先把完整 JSON 写进 temp 文件，然后 <code>fs.linkSync()</code> 落位到锁路径——link 在目标已存在时失败且原子，杜绝了 O_EXCL create 与 write 之间被插入第二个 daemon 的微秒窗口。无硬链接的文件系统（ExFAT）回退 'wx' 标志打开。</p>
+<h2 id="生命周期三种死亡方式"><a class="header" href="#生命周期三种死亡方式">生命周期：三种死亡方式</a></h2>
+<p>daemon 怎么知道自己该退场？三个独立机制覆盖三种形态：</p>
+<ul>
+<li><strong>正常空闲</strong>：最后一个客户端断开后 linger 300s（env 可调），然后退出；</li>
+<li><strong>幽灵客户端</strong>：close 事件永远不来（Windows 管道问题、host 崩溃）——每 30s 扫描一次，对每个客户端做 proxy/host pid 存活探测，全灭才退场。backstop 兜底 30 分钟硬上限。措辞很讲究："绝不杀 live-but-quiet 会话";</li>
+<li><strong>孤儿 launcher</strong>：见下节 watchdog 家族。</li>
+</ul>
+<h2 id="watchdog-家族"><a class="header" href="#watchdog-家族">watchdog 家族</a></h2>
+<p>这是本仓可靠性设计的精华，五层机制各对应一种事故形态：</p>
+<p><strong>EARLY_PPID</strong>（<code>early-ppid.ts</code>）。CLI 的第一个 import 就记录 <code>process.ppid</code>。动机（#1185）：launcher 若在头 ~100ms 被 SIGKILL，等代码跑起来时 ppid 已经 reparent 成 1，基于 ppid 变化的检测永远不会触发。所以要在最早的时刻拍快照。</p>
+<p><strong>ppid-watchdog</strong>。每 5s 对比当前 ppid 与快照——变了就是父进程死了，自杀。Windows 的 ppid 恒定，改用对原始 ppid 做 liveness 探测（平台差异又一次被显式建模而非假装不存在）。</p>
+<p><strong>startup-handshake</strong>。#1185 的另一种形态：host 杀了 launcher 链但 stdin 管道被第三方持有，stdin 永远不 EOF，PPID 检测失效。兜底是 15 分钟内没收到任何 stdin 字节即视为被遗弃的 launch，自行退场。第一个字节到达即解除武装。</p>
+<p><strong>liveness-watchdog</strong>。前面四层管"父进程死了"，这层管"自己卡了"。#850 发现主线程陷入非分配的原生循环时（比如 SQLite 长语句），V8 isolate 到不了 safepoint，连 worker 线程的 watchdog 都会饿死。解法是用<strong>子进程</strong>：parent 每 tick 向 child stdin 写心跳，child 超时 60s 收不到就 SIGKILL parent——子进程没有共享堆，内核信号无视父线程状态。误杀防护是 progressPaths：心跳静默期间检查 DB/WAL 文件的 size/mtime 快照，前进了说明是慢盘上的合法长语句，宽限（上限 10×timeout）。</p>
+<p><strong>liftoff 中间进程的补偿</strong>。提取章讲过 <code>--liftoff-only</code> 重执行会插入中间进程，PPID 检测从此失真。补偿是把真 host pid 通过 <code>CODEGRAPH_HOST_PPID</code> env 穿透到最终进程，watchdog 直接 poll 它。</p>
+<p>五层机制合起来是一张完整的死亡语义表。读这段代码最好的姿势不是记细节，而是问"如果去掉这一层，哪种崩溃形态会成为孤儿/僵尸/冻结？"——每一层都有明确的答案。</p>
+<h2 id="冷启动竞态与查询池"><a class="header" href="#冷启动竞态与查询池">冷启动竞态与查询池</a></h2>
+<p>agent 会话的头几秒是最脆弱的。engine.ts 用三招压冷启动：惰性 <code>require('../index')</code> 把 sqlite/graph 层推迟到首次工具调用；initialize 握手<strong>先响应再做重活</strong>（#172）；后台 catchUpSync 作为一次性 gate——首个工具调用等它完成，保证 agent 看到的索引不会落后于磁盘太多。</p>
+<p>查询并发用 worker 池解决（daemon 模式）：同步的 node:sqlite 共享一个事件循环，10 个并发 explore 曾把宏任务饿死 25 秒无心跳。池里每个 worker 各持一条 WAL 读连接（WAL 的多读单写模型正好支持），主线程只剩写入和协调。熔断保护齐全：worker 崩溃重试一次、预算 12 次后标记 unhealthy 回退进程内执行；过载时返回<strong>成功形状</strong>的"忙，稍候重试"而不是错误——理由见下一章的错误形状哲学。</p>
+<h2 id="工具面总览"><a class="header" href="#工具面总览">工具面总览</a></h2>
+<p>tools.ts（7008 行）定义八个工具：search / callers / callees / impact / node / explore / status / files。但默认只暴露一个——<code>DEFAULT_MCP_TOOLS = new Set(['explore'])</code>（L1303），其余可用 env 重新启用。这个激进的决定来自实测：agent 面对 8 个工具时会平均用力，explore 的采用率反而下降；只给它一个，flow 问题的解决路径就唯一了。小于 500 文件的仓库进一步收缩为三件套。</p>
+<p>工具行为的核心设计在 explore 和 node 两个工具上，它们是"为 agent 设计工具"方法论的集中体现——值得单独一章（下一章）。</p>
+<p>最后提一句指令面：<code>server-instructions.ts</code> 是 MCP initialize 响应返回的使用指南，也是全仓<strong>唯一</strong>的 agent 指导真源。曾经 installer 会往 CLAUDE.md/AGENTS.md 里写一份复制品，两处漂移后（issue #529）被砍掉——现在工具指导只此一份。</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="adv-kernel.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="adv-agent-tools.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="adv-kernel.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="adv-agent-tools.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

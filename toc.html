@@ -1,0 +1,32 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust" dir="ltr">
+    <head>
+        <!-- sidebar iframe generated using mdBook
+
+        This is a frame, and not included directly in the page, to control the total size of the
+        book. The TOC contains an entry for each page, so if each page includes a copy of the TOC,
+        the total size of the page becomes O(n**2).
+
+        The frame is only used as a fallback when JS is turned off. When it's on, the sidebar is
+        instead added to the main page by `toc.js` instead. The JavaScript mode is better
+        because, when running in a `file:///` URL, the iframed page would not be Same-Origin as
+        the rest of the page, so the sidebar and the main page theme would fall out of sync.
+        -->
+        <meta charset="UTF-8">
+        <meta name="robots" content="noindex">
+        <!-- Custom HTML head -->
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body class="sidebar-iframe-inner">
+        <ol class="chapter"><li class="chapter-item expanded affix "><a href="intro.html" target="_parent">引言：为什么需要 CodeGraph</a></li><li class="chapter-item expanded affix "><li class="part-title">总体架构</li><li class="chapter-item expanded "><a href="architecture.html" target="_parent"><strong aria-hidden="true">1.</strong> 一条流水线，两种旅程</a></li><li class="chapter-item expanded affix "><li class="part-title">Tree-sitter 与提取基础设施</li><li class="chapter-item expanded "><a href="tree-sitter.html" target="_parent"><strong aria-hidden="true">2.</strong> Tree-sitter 入门：语法、错误恢复与 WASM</a></li><li class="chapter-item expanded affix "><li class="part-title">实证：一张图是怎么长出来的</li><li class="chapter-item expanded "><a href="empiria.html" target="_parent"><strong aria-hidden="true">3.</strong> 一个玩具仓库的六站解剖</a></li><li class="chapter-item expanded affix "><li class="part-title">源码级入门</li><li class="chapter-item expanded "><a href="gs-data-model.html" target="_parent"><strong aria-hidden="true">4.</strong> 数据模型：types.ts 与 schema.sql</a></li><li class="chapter-item expanded "><a href="gs-extractor.html" target="_parent"><strong aria-hidden="true">5.</strong> 提取器解剖：AST 如何变成图</a></li><li class="chapter-item expanded "><a href="gs-storage.html" target="_parent"><strong aria-hidden="true">6.</strong> 存储层：node:sqlite 与 QueryBuilder</a></li><li class="chapter-item expanded "><a href="gs-querying.html" target="_parent"><strong aria-hidden="true">7.</strong> 查询层：遍历、搜索与上下文</a></li><li class="chapter-item expanded affix "><li class="part-title">源码级进阶</li><li class="chapter-item expanded "><a href="adv-resolution.html" target="_parent"><strong aria-hidden="true">8.</strong> 引用解析：两阶段流水线</a></li><li class="chapter-item expanded "><a href="adv-synthesis.html" target="_parent"><strong aria-hidden="true">9.</strong> 动态分发与合成边</a></li><li class="chapter-item expanded "><a href="adv-kernel.html" target="_parent"><strong aria-hidden="true">10.</strong> 原生内核：Rust 加速路径</a></li><li class="chapter-item expanded "><a href="adv-mcp.html" target="_parent"><strong aria-hidden="true">11.</strong> MCP 服务器与进程拓扑</a></li><li class="chapter-item expanded "><a href="adv-agent-tools.html" target="_parent"><strong aria-hidden="true">12.</strong> 为 agent 设计工具：codegraph_explore</a></li><li class="chapter-item expanded "><a href="adv-performance.html" target="_parent"><strong aria-hidden="true">13.</strong> 性能工程：watchdog、WAL 与内存纪律</a></li><li class="chapter-item expanded affix "><li class="part-title">附录</li><li class="chapter-item expanded "><a href="appendix-api.html" target="_parent"><strong aria-hidden="true">14.</strong> 公共 API 导航</a></li><li class="chapter-item expanded "><a href="compare-crg.html" target="_parent"><strong aria-hidden="true">15.</strong> 对比：code-review-graph 交叉分析</a></li></ol>
+    </body>
+</html>

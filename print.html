@@ -1,0 +1,1228 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>CodeGraph 源码导读</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="引言为什么需要-codegraph"><a class="header" href="#引言为什么需要-codegraph">引言：为什么需要 CodeGraph</a></h1>
+<h2 id="一个关于读代码的经济学问题"><a class="header" href="#一个关于读代码的经济学问题">一个关于"读代码"的经济学问题</a></h2>
+<p>设想一个 AI 编码 agent 接到这样一个问题：</p>
+<blockquote>
+<p>"用户更新画布上的一个元素后，画面是怎么重新渲染出来的？"</p>
+</blockquote>
+<p>没有 CodeGraph 时，agent 的典型做法是 Grep 一个关键词、打开一个文件、再 Grep 另一个关键词、再打开另一个文件……每一次工具调用都把新的文本灌进上下文窗口，而 agent 真正需要的答案——一条从 <code>mutateElement</code> 出发、穿过回调注册和 React 重渲染、最终落在 <code>renderStaticScene</code> 的调用路径——散落在十几个文件里。本仓库的基准测试记录过这类任务在无图状态下的形态：<strong>9–10 次 Read、10–11 次 Grep，两分钟以上的墙钟时间</strong>（见 <code>docs/design/dynamic-dispatch-coverage-playbook.md</code> 中 Excalidraw 的工作样例）。</p>
+<p>CodeGraph 对这个问题的回答是：把这些结构性关系<strong>预先物化</strong>成一张图。同一个问题变成一次 <code>codegraph_explore("mutateElement triggerUpdate renderStaticScene")</code> 调用——工具返回的 Flow 区段直接给出六跳的完整链路，每一跳都带内联源码和"这条边是怎么接上的"接线点位置。实测最好成绩是 <strong>0 Read / 0 Grep / 3 次工具调用 / 51 秒</strong>。</p>
+<p>这不是一个检索质量的边际改进。agent 一旦发现 codegraph 的答案不够用，会立刻回退到 Read/Grep；而只要答案足够用，它就会停手。所以整个项目的核心优化目标可以压缩成一句话：<strong>让 agent 在少数几次快速的结构化查询之后获得足以停止阅读的答案。</strong></p>
+<h2 id="它是什么"><a class="header" href="#它是什么">它是什么</a></h2>
+<p>CodeGraph 是一个<strong>本地优先的代码情报系统</strong>，同时以三种形态存在：</p>
+<ol>
+<li><strong>库</strong>——<code>src/index.ts</code> 导出的 <code>CodeGraph</code> 类，暴露 <code>init/open/indexAll/sync/searchNodes/getCallers/getImpactRadius/buildContext/watch</code> 等方法；</li>
+<li><strong>CLI</strong>——<code>codegraph init/index/sync/status/query/explore/callers/affected/serve</code> 等子命令（<code>src/bin/codegraph.ts</code>）；</li>
+<li><strong>MCP 服务器</strong>——通过 stdio 把八个工具（默认只暴露 <code>codegraph_explore</code>）交给 Claude Code、Cursor、Codex CLI、opencode 等 host。</li>
+</ol>
+<p>三者共享同一条管线：tree-sitter 解析 → 符号/边写入 SQLite（FTS5 全文索引）→ 引用解析与动态分发合成 → 图查询与上下文构建。每个项目的数据都在项目根的 <code>.codegraph/</code> 目录里，没有任何云依赖。</p>
+<p>有一个设计决定值得在读第一行源码之前就记住：<strong>提取是确定性的</strong>。所有符号和边都派生自 AST 结构，而不是 LLM 总结。这意味着对同一份代码重复建索引，得到的图是字节级一致的——这是后面无数工程决策（按文件序提交、语法树版本锁定、插入序消歧）共同的锚点。</p>
+<h2 id="三条贯穿全书的设计主线"><a class="header" href="#三条贯穿全书的设计主线">三条贯穿全书的设计主线</a></h2>
+<p>深读这个代码库，会发现几乎每个非常规写法背后都有一个可追溯的事故编号（issue #），以及从那次事故提炼出的原则。其中三条主线会在每一章反复出现：</p>
+<p><strong>确定性高于一切。</strong> 引用解析阶段会把歧义引用绑定到"数据库插入序最先"的候选上，所以提取阶段必须保证提交顺序稳定——多 worker 并行解析、乱序完成，但必须<strong>按文件序落库</strong>（<code>src/extraction/index.ts</code>）。同理，Rust 内核与 WASM 路径必须使用同一 revision 的 grammar 才允许切换路由。</p>
+<p><strong>静默优于错边。</strong> <code>", ".join(x)</code> 这样的字面量接收者不发引用；同名候选超过 500 个直接放弃解析；事件扇出超过上限跳过。"一条错误的边比缺失的边更糟"出现在 name-matcher、synthesizer、import-resolver 每一层的注释里——因为下游的 agent 会沿着错边走向完全无关的代码，然后开始自信地胡说。</p>
+<p><strong>进程拓扑即可靠性。</strong> CLI 启动时可能自我重执行一次（为了给 V8 打 <code>--liftoff-only</code> 标志）；MCP 默认跑在一个 detached daemon 上，host 启动的只是轻量 proxy；五层 watchdog 各自负责一种孤儿/卡死形态。这一整套机制不是过度设计，而是 #277/#692/#799/#850/#1185 一连串真实事故的沉积层。</p>
+<h2 id="如何阅读这本书"><a class="header" href="#如何阅读这本书">如何阅读这本书</a></h2>
+<ul>
+<li><strong>第 2 章</strong>给出全景架构，建议所有人先读；</li>
+<li><strong>第 3 章</strong>是 tree-sitter 本身的入门，以及本仓对它的非典型用法——不熟悉 tree-sitter 或好奇"为什么不用 <code>.scm</code> Query"的读者从这里进入源码最顺；</li>
+<li><strong>入门篇四章</strong>沿数据流动顺序展开：类型契约 → 提取 → 存储 → 查询。每章都以一段真实源码为主角，读完你应该能独立追踪一次完整的索引过程；</li>
+<li><strong>进阶篇六章</strong>各自独立，聚焦最难啃的部分：两阶段引用解析、合成边、Rust 内核、MCP 进程拓扑、explore 工具的行为工程设计、以及性能工程；</li>
+<li>附录是公共 API 到内部实现的导航表，供随手查阅。</li>
+</ul>
+<p>文中所有 <code>文件:行号</code> 均对应写作时的 main 分支，行号会漂移但函数名不会。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="一条流水线两种旅程"><a class="header" href="#一条流水线两种旅程">一条流水线，两种旅程</a></h1>
+<h2 id="分层管线"><a class="header" href="#分层管线">分层管线</a></h2>
+<p>CodeGraph 的所有模块最终都挂在这条流水线上：</p>
+<pre><code>文件系统
+   │  scanDirectoryAsync（gitignore / 嵌入子仓库处理）
+   ▼
+ExtractionOrchestrator ── ParseWorkerPool ── tree-sitter (WASM) 或 Rust 内核
+   │  ExtractionResult { nodes, edges, unresolvedReferences }
+   ▼
+SQLite (.codegraph/codegraph.db)          ← schema.sql + FTS5
+   │
+   ▼
+ReferenceResolver                          ← imports / name-matcher / frameworks
+   │  把"名字引用"绑定成边；失败的 park 进 unresolved_refs
+   ▼
+callback-synthesizer                       ← 动态分发合成边（provenance='heuristic'）
+   │
+   ▼
+GraphQueryManager / GraphTraverser         ← callers、callees、impact、findPath
+   │
+   ▼
+ContextBuilder                             ← 混合检索 + 图扩展 → markdown/JSON
+   │
+   ▼
+MCP 工具层（tools.ts）                     ← codegraph_explore 等，面向 agent
+</code></pre>
+<p>依赖方向是严格的单向：<code>index.ts</code>（公共 API）在 <code>wireLayers()</code> 里把各层装配起来，下层不知道上层。库用户只接触 <code>CodeGraph</code> 类；CLI 和 MCP 服务器都只是它的两种驱动方式。</p>
+<h2 id="旅程一索引一个仓库"><a class="header" href="#旅程一索引一个仓库">旅程一：索引一个仓库</a></h2>
+<p><code>codegraph init</code> 触发的 <code>indexAll</code> 是全仓最重的路径（<code>src/index.ts:471</code>）。把它当作全书的地标，后面每一章都会回到这条链上：</p>
+<ol>
+<li><strong>互斥</strong>：进程内 <code>indexMutex</code> + 跨进程 <code>FileLock</code>（<code>.codegraph/codegraph.lock</code>）双重把关；</li>
+<li><strong>fast-init</strong>：全新数据库时临时切到 <code>journal_mode=MEMORY + synchronous=OFF</code>——反正索引中途崩了就整个重来，不值得为它付持久化代价；</li>
+<li><strong>WAL 延迟 checkpoint</strong>：把 <code>wal_autocheckpoint</code> 置 0，交给后台的 <code>WalCheckpointValve</code> 控制回填节奏（HDD 上这一项把 19 分钟变成 45 秒，#1231）;</li>
+<li><strong>批量装载窗口</strong>：DROP 掉 FTS 逐行触发器和全部二级索引，让海量 INSERT 直通；</li>
+<li><strong>扫描与解析</strong>：<code>scanDirectoryAsync</code> 产出文件列表，<code>ParseWorkerPool</code> 并行解析——但结果<strong>按文件序</strong>提交（第 5 章）；</li>
+<li><strong>解析引用</strong>：<code>resolveReferencesBatched</code> 把提取阶段攒下的几十万个"名字引用"批量绑定为边（进阶篇第 1 章）；</li>
+<li><strong>两遍 deferred 解析</strong>：<code>resolveChainedCallsViaConformance</code>（#750）和 <code>resolveDeferredThisMemberRefs</code>（#808）处理必须等 extends/implements 边建好才能解的引用；</li>
+<li><strong>合成动态边</strong>：36 个 pass 扫描已解析的图，补上回调、事件、React 重渲染这类静态解析看不见的边（进阶篇第 2 章）；</li>
+<li><strong>收尾</strong>：离线程 maintenance（PRAGMA optimize + WAL checkpoint）、按差值重算节点/边计数、盖 <code>indexed_with_extraction_version</code> 版本戳。</li>
+</ol>
+<p>注意第 8 步：合成边经常占图中边的 50% 以上。静态 AST 只能告诉你代码<em>写着</em>什么调用；而 agent 关心的"数据怎么流动"有一半发生在动态分发里。这是 CodeGraph 与朴素 "ctags + grep" 方案的本质区别。</p>
+<h2 id="旅程二回答一个-flow-问题"><a class="header" href="#旅程二回答一个-flow-问题">旅程二：回答一个 flow 问题</a></h2>
+<p>agent 在 Cursor 里问出本章开头那个渲染问题时，MCP 侧发生的事：</p>
+<pre><code>host (Cursor)                    proxy 进程                detached daemon
+    │ spawn: codegraph serve --mcp   │                          │
+    ├──────── stdio ────────────────▶│ 连接 .codegraph/daemon.sock
+    │                                ├──────── socket ─────────▶│ MCPEngine
+    │◀── initialize 响应(含指令) ─────┤                          │  │
+    │                                │                          │  ├ ToolHandler
+    │◀── tools/list: explore ────────┤                          │  ├ query-pool (workers)
+    │                                │                          │  └ FileWatcher
+    ├── tools/call explore ─────────▶│──────── 转发 ────────────▶│
+</code></pre>
+<p>daemon 里发生的事才是重点：<code>handleExplore</code> 先把查询拆成符号名 token，经 <code>buildFlowFromNamedSymbols</code> 在图上搜索一条只经过"被点名符号"的路径（最多容忍一跳未命名桥），再由 personalized PageRank 补齐周边上下文，最后渲染成带内联源码的 Flow 区段。整个过程通常落在一次 SQL 密集但毫秒级的图查询上。</p>
+<p>这套拓扑里每个角色都有存在理由：proxy 死了 host 能感知（stdio 断开）；daemon 不随任何一个 host 的死亡而退出（多个会话共享热索引）；而 daemon 自己靠 PPID watchdog、空闲计时器和客户端存活扫描三种机制避免变成孤儿（进阶篇第 4 章）。</p>
+<h2 id="模块地图量化视角"><a class="header" href="#模块地图量化视角">模块地图:量化视角</a></h2>
+<p>先看规模(排除类型声明,实数):</p>
+<div class="table-wrapper"><table><thead><tr><th>目录</th><th>文件</th><th>行数</th><th>占比</th><th>职责</th></tr></thead><tbody>
+<tr><td><code>src/extraction/</code></td><td>54</td><td>23,939</td><td>38%</td><td>tree-sitter 包装、29 语言配置、worker 池</td></tr>
+<tr><td><code>src/resolution/</code></td><td>42</td><td>22,964</td><td>37%</td><td>引用解析、同名消歧、框架、合成边</td></tr>
+<tr><td><code>src/mcp/</code></td><td>23</td><td>13,596</td><td>22%</td><td>协议、daemon、watchdog、工具实现</td></tr>
+<tr><td><code>src/installer/</code></td><td>19</td><td>4,521</td><td>7%</td><td>11 个 agent target 的安装器</td></tr>
+<tr><td><code>src/db/</code></td><td>5</td><td>4,465</td><td>7%</td><td>连接、schema、QueryBuilder</td></tr>
+<tr><td><code>src/bin/</code></td><td>5</td><td>2,800</td><td>4%</td><td>CLI 与进程引导</td></tr>
+<tr><td>其余(context/sync/graph/search/ui…)</td><td>~15</td><td>~6,300</td><td>10%</td><td>见下文</td></tr>
+</tbody></table>
+</div>
+<p>两个数字值得咀嚼。其一,<strong>提取 + 解析占了全仓的四分之三</strong>——这个项目的复杂度几乎全部在"把代码读对"上,存储和查询层加起来不到十分之一。SQLite 一共只用了 5 个文件就承载了全部数据需求,这是选对工具的复利。其二,<code>extraction/languages/</code> 下有 <strong>29 个语言配置文件</strong>,平均每语言几百行;而共享的 walker 是一个 6,790 行的单体。语言支持的边际成本是加法,这正是配置表模式的回报。</p>
+<p>再看顶层 import 依赖(自动扫描 <code>from '../&lt;mod&gt;</code> 得到,已剔除 languages/frameworks/targets 等子目录内部边):</p>
+<pre><code>bin        → search sync ui extraction telemetry mcp
+context    → extraction db graph search
+db         → search extraction          ← 反向依赖!
+extraction → db resolution              ← 提取层调用框架提取器!
+graph      → db
+mcp        → resolution sync telemetry extraction search
+resolution → db extraction
+sync       → extraction
+index.ts   → 全部
+</code></pre>
+<p>两条违反直觉的边都有真实理由:<code>extraction → resolution</code> 是 <code>tree-sitter.ts</code> 直接 import <code>getAllFrameworkResolvers</code>——框架路由提取必须在解析现场进行,否则内联 handler 的上下文就丢了;<code>db → search</code> 则是 QueryBuilder 自己实现了 FTS 查询构造,<code>search/</code> 目录反而只放纯函数词汇表(拆词、打分),两者是"SQL 执行 vs 语义计算"的分工而非分层。<strong>依赖方向服务于数据流,不服务于教科书的整洁</strong>——这是读懂本仓结构的钥匙。</p>
+<h2 id="各章导航"><a class="header" href="#各章导航">各章导航</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>章节</th><th>内容</th></tr></thead><tbody>
+<tr><td>实证篇</td><td>用真实索引产物逐站验证机制</td></tr>
+<tr><td>入门篇四章</td><td>数据模型 → 提取器 → 存储 → 查询</td></tr>
+<tr><td>进阶篇六章</td><td>解析 → 合成 → 内核 → MCP → 工具设计 → 性能</td></tr>
+</tbody></table>
+</div>
+<h2 id="横切原则速览"><a class="header" href="#横切原则速览">横切原则速览</a></h2>
+<p>以下原则会在后续章节以具体形态反复出现，此处先立此存照：</p>
+<ul>
+<li><strong>确定性高于一切</strong>——文件序提交、grammar revision 锁定、插入序消歧；</li>
+<li><strong>静默优于错边</strong>——字面量接收者不发边、歧义上限、扇出上限；</li>
+<li><strong>降级要静默</strong>——Rust 内核加载失败返回 null 回落 WASM；watcher 在 WSL2 <code>/mnt/</code> 上自动关闭；一切失败模式都指向"功能少一点"而不是"坏掉";</li>
+<li><strong>响应形状即行为工程</strong>——<code>isError: true</code> 只留给安全拒绝和真故障；未索引、过载、忙碌全部用成功形状携带指引，因为一两次错误响应就会教会 agent 整个会话弃用这个工具；</li>
+<li><strong>DDL 单一真源</strong>——schema.sql 是唯一的 DDL 权威，崩溃自愈和批量窗口结束时的索引重建都从它正则提取 DDL，杜绝漂移；</li>
+<li><strong>任何主线程停顿不得超过 60 秒</strong>——这是 #850 liveness watchdog 定下的硬约束，它塑造了本仓大量异步代码的形状（逐语句 yield、离线程 checkpoint、假超时双窗口）。</li>
+</ul>
+<p>带着这六条去读源码，你会发现它们几乎能解释每一处"为什么不直接写简单点"。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tree-sitter-入门语法错误恢复与-wasm"><a class="header" href="#tree-sitter-入门语法错误恢复与-wasm">Tree-sitter 入门：语法、错误恢复与 WASM</a></h1>
+<p>要读懂 <code>src/extraction/</code>，需要先理解 tree-sitter 是什么、它和 yacc/ANTLR 这类传统解析器生成器的区别在哪里。本章前半部分是独立成立的 tree-sitter 概论，后半部分讲 CodeGraph 对它的用法——其中有两处相当非典型。</p>
+<h2 id="tree-sitter-是什么"><a class="header" href="#tree-sitter-是什么">tree-sitter 是什么</a></h2>
+<p>tree-sitter 诞生于 GitHub，最初的目标很具体：<strong>在编辑器里做实时的语法高亮和代码导航</strong>。这个出身决定了它的三个核心特性，每一个都被 CodeGraph 直接受益：</p>
+<p><strong>1. 具体语法树（concrete syntax tree）。</strong> 与编译器教科书里"丢弃标点、只留语义"的抽象语法树不同，tree-sitter 的树保留一切：括号、分号、逗号都是节点。每个标识符、每个关键字都能通过"字段名"精确定位——比如函数声明节点上一定有 <code>name</code> 字段指向名字标识符。CodeGraph 的提取器大量依赖这一点：<code>getChildByField(node, extractor.nameField)</code> 一行代码就能拿到任何语言的函数名，不用为每个语言写正则。</p>
+<p><strong>2. 错误恢复（error recovery）。</strong> 编辑器里的代码大部分时间是不完整的、有语法错误的。tree-sitter 的 GLR 风格算法不会在第一个错误处放弃，而是把出错区间包成 <code>ERROR</code> 节点继续往下解析。对 CodeGraph 这意味着：一个文件里有一处语法错误，其余部分的符号照样能被提取出来——这在真实世界的代码库上至关重要。代价是错误恢复的产物不保证规范，所以 Rust 内核对包含 <code>ERROR</code> 节点的文件会主动弃权，交回 WASM 路径处理（见内核章）。</p>
+<p><strong>3. 增量重解析（incremental reparsing）。</strong> 给定旧树和新版源码，tree-sitter 能只重算改动波及的子树。这主要服务于编辑器场景；CodeGraph 的 sync 路径按文件粒度重建，暂时没有吃到这个红利——但 watcher 的低延迟增量同步正是建立在"单文件解析足够快"之上的。</p>
+<p>语法本身用一套 DSL 编写（<code>grammar.js</code>），编译产物是纯 C。这份 C 代码可以编成原生库，也可以——关键的一步——编成 <strong>WebAssembly</strong>。</p>
+<h2 id="web-tree-sitter为什么选-wasm"><a class="header" href="#web-tree-sitter为什么选-wasm">web-tree-sitter：为什么选 WASM</a></h2>
+<p>CodeGraph 通过 npm 包 <code>web-tree-sitter</code> + <code>tree-sitter-wasms</code> 使用 WASM 版本的运行时与全部 29 个 grammar（<code>src/extraction/wasm/*.wasm</code>）。动机写在 <code>grammars.ts</code> 的文件头：</p>
+<blockquote>
+<p>Uses web-tree-sitter (WASM) for universal cross-platform support. Grammars are loaded lazily — only languages actually present in the project are compiled, keeping V8 WASM memory pressure low.</p>
+</blockquote>
+<p>对比一下替代方案：如果用 native binding（node-tree-sitter），npm 安装时需要在用户机器上编译 C 代码，或者为每个平台预构建二进制。CodeGraph 的发行版要同时服务 macOS（x64/ARM）、Windows（x64/ARM）和 Linux（x64/ARM），WASM 让 grammar 层完全平台无关。（后来引入的 Rust 内核重新引入了原生二进制，但它是<strong>可选加速</strong>而非依赖——加载失败静默回落 WASM，这是进阶篇内核章的主题。）</p>
+<p>懒加载同样重要。<code>initGrammars()</code> 只初始化 WASM 运行时本身；某个语言的 <code>Language</code> 只有在扫描发现项目里真的有该语言文件时才编译加载。一个纯 Go 仓库永远不会付出 TypeScript grammar 的内存代价。</p>
+<h3 id="运行时的几个坑以及-codegraph-的应对"><a class="header" href="#运行时的几个坑以及-codegraph-的应对">运行时的几个坑，以及 CodeGraph 的应对</a></h3>
+<p>真实工程里 WASM 运行时有三个著名的坑，本仓的应对方式都值得欣赏：</p>
+<p><strong>坑一：并发初始化竞态。</strong> Node 20+ 上多个 <code>Parser</code> 并发加载不同 grammar 会触发上游 issue #2338 的崩溃。所以 <code>loadGrammarsForLanguages()</code> 用朴素的 for 循环顺序加载，注释直说原因。慢一点，但正确。</p>
+<p><strong>坑二：堆碎片化。</strong> tree-sitter 的 WASM 堆在几千次解析后碎片累积，最终抛 <code>memory access out of bounds</code>。应对是周期性重建：worker 每 5000 次解析调用 <code>resetParser(language)</code> 删掉重来（<code>parse-worker.ts:65</code>），连接池回收 worker 时也顺手 reset。此外每棵解析树的 <code>tree.delete()</code> 放在 <code>finally</code> 里——树占用的原生堆对 V8 的 GC 完全不可见，不手动释放就永远不还。</p>
+<p><strong>坑三：OOM 即崩溃。</strong> 碎片化积累到极限就是硬崩。CodeGraph 的策略不是防御而是<strong>拥抱</strong>：捕获到 OOM 后原样 re-throw，worker 进程 <code>process.exit(1)</code>，池检测到死亡后用一个干净的新进程顶替。与其在半损坏的堆上挣扎，不如快速换血。</p>
+<p>还有一个更隐蔽的坑值得单独一节。</p>
+<h3 id="v8-turboshaft-与---liftoff-only"><a class="header" href="#v8-turboshaft-与---liftoff-only">V8 turboshaft 与 <code>--liftoff-only</code></a></h3>
+<p>Node ≥22 的 V8 引入 turboshaft 作为 WASM 的优化编译器后，大型 grammar（TypeScript、C++ 这种几 MB 的 WASM）在优化编译阶段会耗尽 V8 每次编译的 Zone arena，报 <code>Fatal process out of memory: Zone</code>——注意这与系统内存无关，多少都没用。解法是让 WASM 永远停留在 Liftoff（baseline）层，即给 node 进程传 <code>--liftoff-only</code>。</p>
+<p>问题在于这个标志必须在 <strong>V8 引擎初始化时</strong>读取。CodeGraph 试过所有事后注入的路子并逐一记录了失败原因（<code>src/extraction/wasm-runtime-flags.ts</code>）：<code>v8.setFlagsFromString</code> 太晚；Worker 的 execArgv 被 node 拒绝；<code>NODE_OPTIONS</code> 白名单不含它。唯一可行的方案是<strong>自我重执行</strong>：</p>
+<pre><code class="language-ts">// src/extraction/wasm-runtime-flags.ts:119
+spawnSync(process.execPath,
+  [...NODE_RUNTIME_FLAGS, ...WASM_FLAGS, ...preservedArgs, scriptPath, ...args],
+  { env: { ...process.env, CODEGRAPH_WASM_RELAUNCHED: '1' } });
+process.exit(result.status);
+</code></pre>
+<p><code>CODEGRAPH_WASM_RELAUNCHED=1</code> 防止无限递归。副作用是多出一个中间进程——host 被杀时 PPID watchdog 会看到 ppid 变成中间进程而不是宿主，于是真宿主的 pid 被塞进 <code>CODEGRAPH_HOST_PPID</code> 穿透下去（进阶篇 MCP 章会回收这条线）。npm 发布的捆绑版 launcher 则直接带着标志启动 node，无需重执行。</p>
+<h2 id="非典型用法之一不用-scm-query"><a class="header" href="#非典型用法之一不用-scm-query">非典型用法之一：不用 <code>.scm</code> Query</a></h2>
+<p>tree-sitter 官方推荐的高效模式是 Query API：写一份 <code>.scm</code> 文件声明模式匹配（<code>(function_declaration name: (identifier) @fn.name)</code>），由 C 层高效执行。全仓 grep 找不到任何一处 <code>Query(</code> 调用——CodeGraph 刻意不走这条路。</p>
+<p>取而代之的是一个三件套结构：</p>
+<ol>
+<li><strong>声明式配置表</strong>。每种语言一个 <code>LanguageExtractor</code>（接口在 <code>tree-sitter-types.ts:80</code>），内容全是 AST 节点类型名字符串：<code>functionTypes: ['function_declaration', 'arrow_function']</code>、<code>nameField: 'name'</code>、<code>bodyField: 'body'</code>……外加约 30 个可选 hook；</li>
+<li><strong>单一通用 walker</strong>。6790 行的 <code>tree-sitter.ts</code> 只有一个手写递归的 <code>visitNode()</code>，按 <code>node.type</code> 对配置表做 if/else 分派：落在 <code>functionTypes</code> 就走 <code>extractMethod</code>，落在 <code>callTypes</code> 就走 <code>extractCall</code>……</li>
+<li><strong>逃生 hook</strong>。语言结构太特殊时（PHP 的 trait-use、Scala 的 val/var），<code>visitNode</code> hook 接管整棵子树，返回 true 则主 walker 不再下钻。</li>
+</ol>
+<p>这样设计的账是这样算的：30 种语言共享一个 walker 意味着"新增一种语言 = 一个几百行的配置文件"，而 <code>.scm</code> 方案意味着 30 份各自维护的模式文件加上一套跨语言的捕获命名约定。更重要的是，通用 walker 让<strong>跨语言统一的后处理</strong>成为可能——docstring 提取、qualified-name 构建、contains 边自动生成这些逻辑只写一次。</p>
+<p>代价同样真实：<code>extractCall()</code> 一个方法约 850 行，里面塞着 Erlang MFA、Ruby receiver 字段名差异、C++ 链式调用编码等特例分支。这是可维护性与覆盖广度之间做出的明确取舍。</p>
+<h2 id="非典型用法之二同一棵语法树的两套实现"><a class="header" href="#非典型用法之二同一棵语法树的两套实现">非典型用法之二：同一棵语法树的两套实现</a></h2>
+<p>2024 年末起，CodeGraph 引入了 <code>codegraph-kernel/</code>——一个 napi-rs 的 Rust crate，用 Rust 侧的 tree-sitter 绑定<strong>重新实现</strong>了 TS walker 的行为等价物。它不改变架构，只是替换 parse+extract 这一步：输入 <code>(filePath, content, language)</code>，输出五块平坦的二进制 buffer，一次跨界返回。</p>
+<p>于是同一个文件可能走两条路：默认路由到内核（20 种主流语言）；含 <code>ERROR</code> 节点的文件、或内核不可用时，回落到 WASM。两条路必须产出<strong>字节级一致</strong>的图——为此 vendored WASM 中 TS/JS/Java/Python/Go/C/C++/Rust 等 grammar 与内核 Cargo.toml 锁定同一 revision，并有专门的 kernel-grammar-parity 测试断言 node-kind 表相等。</p>
+<p>这段历史最好的注脚是 <code>grammars.ts:275</code> 的注释：vendored wasm 不是为了绕过上游 bug 就是为了和内核保持同源。"图的中立性"（graph-neutrality）在这里被当作硬性验收标准。</p>
+<h2 id="小结"><a class="header" href="#小结">小结</a></h2>
+<p>把这一章的内容压缩成三句话：tree-sitter 给了 CodeGraph 一个<strong>跨 30 种语言、带错误恢复、字段寻址</strong>的统一语法树接口；WASM 化让它在任意用户机器上零编译安装；而"配置表 + 通用 walker"的组织方式让语言支持成为加法题。下一章我们进入数据模型——先看这套机制吐出来的东西长什么样。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="实证一张图是怎么长出来的"><a class="header" href="#实证一张图是怎么长出来的">实证:一张图是怎么长出来的</a></h1>
+<p>前面几章讲的是机制;这一章做实验。我们在 <code>/tmp/opencode/taskflow</code> 造了一个 3 文件的 TypeScript 微型项目——刻意埋进三类"考点":观察者模式(考合成边)、Express 路由(考框架提取)、类继承(考引用解析)——然后用本仓构建出的 CLI 真实索引它,直接打开 SQLite 检查每一个中间产物。所有输出都是原样摘录。</p>
+<h2 id="样本与索引"><a class="header" href="#样本与索引">样本与索引</a></h2>
+<pre><code class="language-ts">// src/audit.ts(节选)
+class TaskRepository {
+  private listeners = new Set&lt;() =&gt; void&gt;();
+  onChange(cb: () =&gt; void): void { this.listeners.add(cb); }
+  private notifyChange(): void {
+    for (const cb of this.listeners) cb();
+  }
+  complete(id: string): Task | null { /* ... */ this.notifyChange(); }
+}
+export const taskRepo = new TaskRepository();
+export function logCompletion(): void { console.log('a task was completed'); }
+export function completeTask(id: string): Task | null { return taskRepo.complete(id); }
+</code></pre>
+<pre><code class="language-bash">$ codegraph init .
+◆  Indexed 3 files
+●  19 nodes, 29 edges in 480ms
+</code></pre>
+<p>480 毫秒里发生了什么?按架构章的流水线逐段对账。</p>
+<h2 id="第一站nodes-表kind-判定的现场"><a class="header" href="#第一站nodes-表kind-判定的现场">第一站:nodes 表——kind 判定的现场</a></h2>
+<pre><code class="language-sql">SELECT kind,name,start_line FROM nodes ORDER BY kind,name;
+</code></pre>
+<pre><code>class      TaskRepository        5
+constant   app                   5      ← server.ts 里的 express() 调用结果
+constant   taskRepo             27
+file       audit.ts / repository.ts / server.ts
+function   completeTask         29
+import     ./audit  ./repository ×2  express
+interface  Task                  1
+method     addChangeListener     8      ← TaskRepository::addChangeListener
+method     notifyChange         12
+method     complete             16
+property   listeners             6      ← TaskRepository::listeners
+property   tasks                24
+route      GET /health          16      ← src/server.ts::GET:/health
+route      GET /tasks/:id/complete  7
+</code></pre>
+<p>三个值得停留的细节:</p>
+<p><strong><code>onChange</code> 为什么是 method 而 <code>listeners</code> 是 property?</strong> 两者在 TS AST 里都是 <code>public_field_definition</code>/<code>method_definition</code> 家族的节点。<code>onChange</code> 有箭头函数体之外还有方法签名;真正的分野发生在 #808 引入的 <code>classifyTsClassMember</code>:值为 callable 的类成员判为 method,否则 property。<code>private tasks = new Map(...)</code> 的值是 <code>new</code> 表达式而非函数,所以落为 property。</p>
+<p><strong>route 节点从哪来?</strong> tree-sitter 对 <code>app.get('/tasks/:id/complete', ...)</code> 只会看到一个 call_expression。是 Express 框架提取器(<code>resolution/frameworks/express.ts</code>)用正则匹配路由头、平衡括号扫描切出 handler、然后创建了这两个 <code>kind:'route'</code> 节点,qualified_name 形如 <code>src/server.ts::GET:/health</code>。注意 route 节点的 line(16 和 7)精确对应路由声明行。</p>
+<p><strong>import 节点是符号不是语句。</strong> <code>./repository</code> 出现两次是因为 audit.ts 和 server.ts 各 import 了它一次——每个 import 声明产生自己的节点,文件级的依赖关系由后面的 imports 边表达。</p>
+<h2 id="第二站edges-表三种-provenance-的同框"><a class="header" href="#第二站edges-表三种-provenance-的同框">第二站:edges 表——三种 provenance 的同框</a></h2>
+<pre><code>provenance    kind          edge
+tree-sitter   calls         complete -&gt; notifyChange
+tree-sitter   calls         completeTask -&gt; complete
+tree-sitter   calls         server.ts -&gt; completeTask
+tree-sitter   calls         GET /tasks/:id/complete -&gt; completeTask   ★
+tree-sitter   contains      TaskRepository -&gt; onChange/notifyChange/complete/listeners/tasks
+tree-sitter   imports       server.ts -&gt; ./audit  ./repository  completeTask  taskRepo ...
+tree-sitter   instantiates  audit.ts -&gt; TaskRepository               ← `new TaskRepository()`
+tree-sitter   references    completeTask -&gt; taskRepo  complete -&gt; Task ...
+</code></pre>
+<p>★ 那条边值得单独解释:route 节点到 <code>completeTask</code> 的 calls 边<strong>不是</strong> tree-sitter 提取的——它是框架提取器从内联箭头 handler 的 body 里提出调用名后,作为普通 UnresolvedReference 进入解析管线、再经 import 解析(<code>server.ts</code> 第 2 行 import 了 <code>completeTask</code>)绑定成功的。框架层和通用管线在这里完成了一次接力。</p>
+<h2 id="第三站一次失败的实验合成边为什么没出现"><a class="header" href="#第三站一次失败的实验合成边为什么没出现">第三站:一次失败的实验——合成边为什么没出现</a></h2>
+<p>样本第一版里,注册方法的命名是 <code>addChangeListener</code>,dispatcher 叫 <code>notifyChange</code>。索引完成后查询合成边:</p>
+<pre><code class="language-sql">SELECT ... FROM edges WHERE provenance='heuristic';
+-- 结果:0 行
+</code></pre>
+<p>图断了:<code>complete → notifyChange</code> 之后没有下一跳,agent 问"任务完成后通知谁"会得到一条断链。为什么?</p>
+<p>翻开 <code>callback-synthesizer.ts</code> 的 <code>fieldChannelEdges</code>(L179),第一步就是名字门:</p>
+<pre><code class="language-ts">const isReg  = REGISTRAR_NAME.test(m.name);    // /^(on[A-Z]|subscribe|addListener|register|watch|listen|addCallback)/
+const isDisp = DISPATCHER_NAME.test(m.name);   // /(emit|trigger|notify|dispatch|fire|publish|flush)/i
+if (!isReg &amp;&amp; !isDisp) continue;
+</code></pre>
+<p><code>notifyChange</code> 含 "notify",过 dispatcher 门;但 <code>addChangeListener</code> 不匹配 REGISTRAR_NAME 的任何约定分支(<code>addListener</code> 是,<code>addChangeListener</code> 不是)。启发式的本质在此暴露无遗:<strong>它不理解语义,只认约定</strong>。这不是 bug 而是精度护栏——如果任何 "add*" 方法都算 registrar,<code>listeners.add(cb)</code> 这种集合操作会把图炸成噪声网。</p>
+<p>把方法改名为 <code>onChange</code> 再索引,合成边出现了:</p>
+<pre><code class="language-sql">SELECT ns.name||' --&gt; '||nt.name AS e, e.metadata FROM edges e
+JOIN nodes ns ON ns.id=e.source JOIN nodes nt ON nt.id=e.target
+WHERE e.provenance='heuristic';
+</code></pre>
+<pre><code>notifyChange --&gt; logCompletion
+   synthesizedBy: callback | registeredAt: src/server.ts:5
+</code></pre>
+<p><code>src/server.ts:5</code> 正是接线行 <code>taskRepo.onChange(logCompletion)</code>。回看 <code>fieldChannelEdges</code> 的实现,这条边的诞生路径完全可复述:registrar 的 incoming <code>calls</code> 边找到调用方(server.ts 文件节点),取该行的源码,用 <code>new RegExp(`${reg.node.name}\\s*\\(\\s*(?:this\\.)?(\\w+)`)</code> 从 <code>taskRepo.onChange(logCompletion)</code> 里捕获实参名 <code>logCompletion</code>,按名查到 function 节点,与同文件同 field 的 dispatcher 配对成边。<strong>每一步都是纯机械的字符串与图操作——启发式的全部智慧都押在了命名约定上,这正是它既廉价又脆弱的地方。</strong></p>
+<h2 id="第四站unresolved_refs失败者的名单"><a class="header" href="#第四站unresolved_refs失败者的名单">第四站:unresolved_refs——失败者的名单</a></h2>
+<pre><code class="language-sql">SELECT status, reference_kind, reference_name FROM unresolved_refs;
+</code></pre>
+<pre><code>failed   instantiates  Set              ← JS builtin,黑名单其实拦了大半,漏网的停在这
+failed   calls         cb               ← 局部回调变量,静态不可知
+failed   calls         console.log log
+failed   imports       express          ← package.json 声明了依赖但我们没 npm install
+failed   calls         app.get get      ← 方法链,resolver 拆链需要类型信息
+failed   calls         res.status json  ← DOM/框架对象成员
+failed   calls         if               ← 甚至有控制流关键字被当调用捕获
+</code></pre>
+<p>这张表是"静默优于错边"的实物证据:<code>res.json</code> 大概率永远不该连向任何业务符号, park 在这里比猜一个目标正确得多。同时它也是 sync 重试机制的原料库——如果将来装上 node_modules 并重建,express 相关引用就有复活机会。</p>
+<h2 id="第五站name_segment_vocab给-fts-补的人间词汇"><a class="header" href="#第五站name_segment_vocab给-fts-补的人间词汇">第五站:name_segment_vocab——给 FTS 补的人间词汇</a></h2>
+<p>FTS5 把 <code>notifyChange</code> 当作单个 token,搜 "change" 永远命中不了它。拆词表解决了这件事:</p>
+<pre><code>segment     name
+change      addChangeListener
+change      notifyChange
+completion  logCompletion
+complete    GET /tasks/:id/complete
+get         GET /health
+</code></pre>
+<p>"change" 一词反查出两个方法——正是 agent 用自然语言提问时需要的桥梁。</p>
+<h2 id="第六站explore-的真实输出"><a class="header" href="#第六站explore-的真实输出">第六站:explore 的真实输出</a></h2>
+<p>最后让消费者登场。CLI 直驱工具层(与 MCP 同一实现):</p>
+<pre><code class="language-bash">$ codegraph explore "task complete notifyChange logCompletion render"
+</code></pre>
+<pre><code>**Flow (call path among the symbols you queried)**
+
+1. complete (src/audit.ts:16)
+   ↓ calls
+2. notifyChange (src/audit.ts:12)
+   ↓ dynamic: callback via `onChange` @src/server.ts:5
+3. logCompletion (src/audit.ts:29)
+
+&gt; Full source for these symbols is below...
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `completeTask` — 2 callers in `src/server.ts`; no tests found within 3 caller hops
+- `logCompletion` — 2 callers in `src/audit.ts`, `src/server.ts`; ...
+
+**Source Code**
+&gt; The code below is the **verbatim, current on-disk source** ... Treat each block
+&gt; as a Read you have already performed: do not Read a file shown here.
+</code></pre>
+<p>逐段解读这个输出的设计意图:</p>
+<ol>
+<li><strong>Flow 区段打头</strong>,因为它是查询的直接答案。第 2→3 跳标注 <code>dynamic: callback via \</code>onChange` @src/server.ts:5`——上一站的合成边在此兑现:agent 不仅知道 notifyChange 会调 logCompletion,还拿到了验证用的接线位置,不需要任何 Grep;</li>
+<li><strong>Blast radius 其次</strong>:编辑这些符号前该检查什么。"no tests found within 3 caller hops" 是诚实的能力边界声明;</li>
+<li><strong>源码最后</strong>,且带着那句关键指令:"Treat each block as a Read you have already performed"。这句话是说给 agent 听的——它把"读过了"的状态直接注入 agent 的行为模型,阻止后续冗余 Read。整份输出没有一句"请使用 xx 工具继续查",因为指令章的教训是:<strong>别教育 agent,把答案做到它无法拒绝</strong>。</li>
+</ol>
+<h2 id="实验结论"><a class="header" href="#实验结论">实验结论</a></h2>
+<p>一个 3 文件、34 条边的玩具项目,走完了全部六站,每一站都验证了前文的一个论断:kind 判定靠 hook(#808)、route 来自框架层、合成边靠命名约定且失败时静默、失败引用 park 待复、段词表桥接自然语言、explore 输出为 agent 的停止条件而设计。真实仓库只是把这些数字放大三四个数量级,机制一字不变。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="数据模型图长什么样"><a class="header" href="#数据模型图长什么样">数据模型:图长什么样</a></h1>
+<p>读源码最忌讳的一件事:还没见过数据,就先背结构。所以这一章不从 types.ts 开始,从<strong>查询结果</strong>开始——下面是我们实证篇那个玩具仓库索引完成后,nodes 表里的真实数据(节选):</p>
+<pre><code>kind       name             line   qualified_name
+---------  ---------------  ----   --------------------------
+class      TaskRepository      5   TaskRepository
+method     complete           16   TaskRepository::complete
+method     notifyChange       12   TaskRepository::notifyChange
+function   completeTask       33   completeTask
+route      GET /health        16   src/server.ts::GET:/health
+file       audit.ts            1   src/audit.ts
+</code></pre>
+<p>六行,六个字段。整张 nodes 表几十个字段看着吓人,但真正天天被用到的问题只有五个:<strong>它是什么(kind)、叫什么(name)、全名叫什么(qualified_name)、住在哪(file_path)、身份证号是多少(id)</strong>。其余字段(docstring、签名、可见性……)都是给下游查询加料的。</p>
+<h2 id="身份证为什么-id-里掺了行号"><a class="header" href="#身份证为什么-id-里掺了行号">身份证:为什么 id 里掺了行号</a></h2>
+<pre><code class="language-ts">// src/extraction/tree-sitter-helpers.ts:18
+id = `${kind}:${sha256(`${filePath}:${kind}:${name}:${line}`).slice(0,32)}`
+</code></pre>
+<p>第一眼会觉得奇怪:函数挪一行,id 就变了,所有指向它的边都得重连——这不是自找麻烦吗?</p>
+<p>恰恰相反,<strong>这是把"清理"外包给了数据库</strong>。SQLite 的外键都带 <code>ON DELETE CASCADE</code>:节点删掉,边自动跟着消失。于是"某函数整体下移了两行"这种最烦人的变更,处理方式变成了零成本的两步——旧行删了(边级联没了)、新行建了。sync 不需要任何"检测符号移动"的特殊逻辑。你会在本书反复看到这个思路:<strong>与其维护昂贵的对应关系,不如让关系便宜到可以随手重建。</strong></p>
+<h2 id="全名七个-factory-的故事"><a class="header" href="#全名七个-factory-的故事">全名:七个 Factory 的故事</a></h2>
+<p><code>qualified_name</code> 长这样:<code>TaskRepository::complete</code>。它由提取时的"命名空间栈"拼出来——文件顶部如果有 <code>namespace Foo\Bar;</code>(PHP)或 C++ namespace,就先压栈,里面每个符号的名字都带上前缀。</p>
+<p>为什么要费这个事?Laravel 仓库里有<strong>七个</strong>叫 <code>Factory</code> 的接口,分布在不同的命名空间。如果图只用裸名字,<code>use Illuminate\Contracts\Factory</code> 这种引用永远说不清指向哪一个;有了全名,精确匹配一击命中。第 8 章讲解析时会反复回到这一点。</p>
+<h2 id="边自带信任等级"><a class="header" href="#边自带信任等级">边:自带信任等级</a></h2>
+<p>边表更简单,核心就四列:谁(source)指向谁(target)、什么关系(kind)。真正值得注意的是第五列 <strong>provenance</strong>(出身):</p>
+<div class="table-wrapper"><table><thead><tr><th>provenance</th><th>含义</th><th>实证篇里的例子</th></tr></thead><tbody>
+<tr><td><code>tree-sitter</code></td><td>语法树上明摆着写的</td><td><code>completeTask → complete</code>(代码里真有括号)</td></tr>
+<tr><td><code>heuristic</code></td><td>合成器推断的动态调用</td><td><code>notifyChange → logCompletion</code>(回调,AST 里看不见)</td></tr>
+</tbody></table>
+</div>
+<p>第三种 <code>scip</code> 是预留的外部格式。为什么要在边上刻"你是怎么来的"?因为下游的信任策略不同:explore 工具愿意骑 heuristic 边给你接通流程,但会显式标注"dynamic:",让你知道这段是推断、可以去 <code>registeredAt</code> 记录的接线位置核实。CRG 对比章里我们见过它的兄弟——置信度分数——同一问题的两种解法。</p>
+<h2 id="两张辅助表目录卡片和拆词本"><a class="header" href="#两张辅助表目录卡片和拆词本">两张辅助表:目录卡片和拆词本</a></h2>
+<p>schema.sql 里还有几张表容易让人困惑,各用一句话说清它们为什么存在。</p>
+<p><strong>nodes_fts 是目录卡片,不是第二份数据。</strong> 它是 FTS5 全文索引,用了"外部内容模式"——正文只在 nodes 表里,这张虚拟表只存倒排索引(哪个词出现在哪行)。三个触发器负责保持同步:nodes 表增删改时,卡片跟着更新。好处是数据不冗余,代价是删除要走特殊命令形式——这是 FTS5 外部内容表的固定动作,不是 bug。</p>
+<p><strong>name_segment_vocab 是拆词本。</strong> 问题:FTS 把 <code>notifyChange</code> 当成一个不可分的词,用户搜 "change"(自然语言!)永远命中不了它。解法:索引时顺手把驼峰名拆开存一份——</p>
+<pre><code>segment     name
+change      addChangeListener
+change      notifyChange
+completion  logCompletion
+</code></pre>
+<p>搜 "change" 就能反查出两个方法。注意表注释里那句反直觉的话:孤儿行<strong>故意不清除</strong>——词条只是提案,每次使用前都会拿去 nodes 表复核,所以留着不碍事,全量重建时才清场。</p>
+<h2 id="schemasql-是唯一的图纸"><a class="header" href="#schemasql-是唯一的图纸">schema.sql 是唯一的图纸</a></h2>
+<p>最后说一个工程习惯,它解释了散落在 db 层的很多奇怪代码。批量索引为了速度会临时 DROP 掉一批索引和触发器,结束时再建回来;"崩溃自愈"也要检查并补建缺失的索引。这两处代码都<strong>不手写 DDL</strong>,而是运行时从 schema.sql 正则提取对应的 <code>CREATE INDEX ...;</code> 语句执行。</p>
+<p>为什么?"手写一份"意味着图纸有了副本,副本必然漂移——半年后有人在 schema.sql 加了新索引,忘了同步自愈名单,自愈就永远修不出正确的库。单一事实来源不是洁癖,是把"漂移"这类 bug 从类别上消灭。</p>
+<p>(migration v2–v9 每条背后的具体故事,见附录前的进阶篇;初读只需知道:版本号存在库里,打开时按需补课。)</p>
+<h2 id="带走三句话"><a class="header" href="#带走三句话">带走三句话</a></h2>
+<ol>
+<li>id 掺行号 = 让"移动"变成"删除+新建",清理外包给外键级联;</li>
+<li>qualified_name 解决同名歧义,provenance 让下游自己决定信多少;</li>
+<li>schema.sql 只此一份,所有运行期 DDL 都从它现场提取。</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="提取器一行代码怎么变成图上的点"><a class="header" href="#提取器一行代码怎么变成图上的点">提取器:一行代码怎么变成图上的点</a></h1>
+<p>这一章跟踪一个函数的一生。主角还是实证篇那位:</p>
+<pre><code class="language-ts">export function completeTask(id: string): Task | null {
+  const result = taskRepo.complete(id);
+  return result;
+}
+</code></pre>
+<p>索引结束后,图上多了什么?一个 <code>function</code> 节点 <code>completeTask</code>,一条 <code>completeTask → complete</code> 的 calls 边,一条指向 <code>taskRepo</code> 的 references 边。本章就回答:<strong>这中间发生了什么。</strong></p>
+<h2 id="第一步代码变成树"><a class="header" href="#第一步代码变成树">第一步:代码变成树</a></h2>
+<p>tree-sitter 先把源码切成语法树。对第一行,大致是:</p>
+<pre><code>export_statement                    ← export 关键字在这层!
+└── function_declaration
+    ├── name: "completeTask"        ← name 字段直接定位名字
+    ├── parameters: (id: string)
+    └── body: statement_block
+        └── return_statement ...
+</code></pre>
+<p>两个对后文至关重要的观察:<strong>其一</strong>,每个标识符挂在有名字的字段上(<code>name:</code>),提取器不需要写正则去猜;<strong>其二</strong>,<code>export</code> 在外面包了一层——这个"包装"稍后会坑我们一次。</p>
+<h2 id="第二步认出这是个函数"><a class="header" href="#第二步认出这是个函数">第二步:认出"这是个函数"</a></h2>
+<p>CodeGraph 不为每种语言写解析器,而是每语言交一张<strong>配置表</strong>(TypeScript 的在 <code>languages/typescript.ts</code>,全文仅 156 行):</p>
+<pre><code class="language-ts">functionTypes: ['function_declaration', 'arrow_function', 'function_expression'],
+classTypes:    ['class_declaration'],
+methodTypes:   ['method_definition', 'public_field_definition'],
+callTypes:     ['call_expression'],
+nameField: 'name',  bodyField: 'body',
+</code></pre>
+<p>然后一个 6790 行的通用 walker(<code>tree-sitter.ts</code>)拿着这棵树逐节点问配置表:"你的 functionTypes 认识 <code>function_declaration</code> 吗?"认识,于是调用 <code>extractFunction</code>:取 name 字段、生成 id、压入结果列表。</p>
+<p>为什么不用 tree-sitter 官方更快的 Query(.scm)模式?因为 29 种语言要共享同一套后处理(docstring 提取、qualified_name 拼接、contains 边自动生成)——一个 walker 让这些逻辑只写一次,新语言的成本从"重写一遍"降为"填一张表"。速度损失换来的是覆盖广度,这笔账在静态分析工具里通常这么算。</p>
+<h3 id="一个真实的坑class-字段算方法还是属性"><a class="header" href="#一个真实的坑class-字段算方法还是属性">一个真实的坑:class 字段算方法还是属性?</a></h3>
+<p>看这两个类成员:</p>
+<pre><code class="language-ts">onChange(cb) { this.listeners.add(cb); }   // 明明是个函数
+private tasks = new Map();                 // 明明不是
+</code></pre>
+<p>麻烦在于 TS 语法树把<strong>两者</strong>都标成 <code>public_field_definition</code>——语法层面它们都是"字段初始化",分不出语义。早期版本一律提为 method,后果是类的形状全错、按类型过滤全部失效(事故 #808)。现在的解法是一个裁决 hook:只有初始化值是函数(箭头函数、或包在 HOF 里如 <code>onScroll = throttle(...)</code>)才判 method。这就是"配置表 + walker"模式的日常:通用逻辑管流程,<strong>语言的坑用 hook 填</strong>。</p>
+<h2 id="第三步记下这里有个调用只记名字"><a class="header" href="#第三步记下这里有个调用只记名字">第三步:记下"这里有个调用"——只记名字</a></h2>
+<p>walker 走到 <code>taskRepo.complete(id)</code> 这个 call_expression 时,发生了一件初看很奇怪的事:它<strong>不查任何东西</strong>,只是往清单里塞一张纸条:</p>
+<pre><code class="language-ts">{ fromNodeId: 'func:abc123',      // 谁在调
+  referenceName: 'taskRepo.complete',  // 名字而已!
+  referenceKind: 'calls',
+  line: 34 }
+</code></pre>
+<p>没有 target。类比:<strong>快递单上只写了收件人姓名,没写地址。</strong></p>
+<p>为什么不顺手查清?因为提取跑在 8 个并行 worker 里,此刻别的文件可能还没入库——worker 根本无从知道 <code>complete</code> 定义在哪。强行查就得加锁串行,并行白做了。于是设计反转:<strong>先收集所有纸条,等全部文件入库后,由专门的"分拣中心"(下一章的解析阶段)统一配送。</strong> 这就是贯穿本书的"两阶段"结构的第一半。</p>
+<h2 id="特例博物馆三件展品"><a class="header" href="#特例博物馆三件展品">特例博物馆:三件展品</a></h2>
+<p>真实语言的调用形态千奇百怪,walker 里塞了一个约 850 行的特例区。挑三件感受一下尺度:</p>
+<p><strong>Erlang 的 spawn</strong>:<code>spawn(Mod, Fun, Args)</code> 的真正被调方藏在参数里,不在调用位置。walker 维护一张 spawn 家族名单,命中就去参数里搜 (模块名, 函数名) 对,把它提升为边——否则所有 Erlang 进程的行为对图隐形。</p>
+<p><strong>字面量接收者不发边</strong>:<code>", ".join(parts)</code> 的接收者是字符串字面量——直接放弃,什么都不记。注释只有六个字:"静默优于错边"。这是全书出现频率最高的原则:下游 agent 会沿着错边走向无关代码然后自信地胡说,断链顶多让它去 Read。</p>
+<p><strong>函数作为值</strong>:<code>btn.on('click', this.handleClick)</code> 里 handleClick 没有括号,长得不像调用。专门的捕获层认出这种形态发纸条,但加了严格门控:名字必须匹配本文件定义或本文件 import 才放行——否则 C++ 里满地的 <code>begin()/end()</code> 会变成几千条假回调边。</p>
+<h2 id="最后一步并行的计算串行的提交"><a class="header" href="#最后一步并行的计算串行的提交">最后一步:并行的计算,串行的提交</a></h2>
+<p>8 个 worker 各自吐结果,谁先完成看 CPU 心情——但落库顺序<strong>必须按文件序</strong>。为什么如此较真?回忆数据模型章:同名引用最终绑定到"插入序最先"的候选。如果提交顺序随机,同一个仓库建两次索引会得到两张不同的图,增量 sync 和全量重建的结果也会漂移(实测差 4.3% 的边)。</p>
+<p>所以调度器维护一个游标:结果乱序到达先缓冲,轮到哪个文件才提交哪个。<strong>并行是性能手段,确定性是正确性前提,后者永远赢。</strong></p>
+<h2 id="带走三句话-1"><a class="header" href="#带走三句话-1">带走三句话</a></h2>
+<ol>
+<li>配置表 + 单一 walker:新语言 = 填表,语言的坑 = hook;</li>
+<li>调用在提取期只是纸条(名字+行号),目标留到第二阶段——这是并行的代价,也是两阶段结构的由来;</li>
+<li>宁可断链不可错边:字面量接收者、歧义回调,一律静默放弃。</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="存储层这些行怎么住进-sqlite"><a class="header" href="#存储层这些行怎么住进-sqlite">存储层:这些行怎么住进 SQLite</a></h1>
+<p>上一章结束时,worker 们攒出了一批节点、边和纸条。本章回答:<strong>它们怎么又快又稳地落进 <code>.codegraph/codegraph.db</code>,以及之后怎么被快速读出来。</strong></p>
+<h2 id="选型为什么是-node-内置的-sqlite"><a class="header" href="#选型为什么是-node-内置的-sqlite">选型:为什么是 Node 内置的 SQLite</a></h2>
+<p>CodeGraph 用的是 Node.js ≥22.5 内置的 <code>node:sqlite</code> 模块,而不是 npm 上的任何数据库包。动机朴素到令人愉快:发行版自带 Node 运行时,所以内置模块<strong>永远可用</strong>——用户 <code>npm install</code> 时不需要编译任何 C 代码,项目也不需要为五个平台预构建二进制。曾经用过的原生依赖(better-sqlite3)和 WASM 后备方案都因此删除了。</p>
+<p>两者 API 有细微差异,于是有个 166 行的适配层把它们抹平(嵌套事务拍平、close 幂等化)。读源码时看到 <code>SqliteDatabase</code> 接口,理解成"长得像 better-sqlite3 的内置模块"即可。</p>
+<p>连接打开时设了一串 PRAGMA,每条都有人话版:</p>
+<pre><code>busy_timeout = 5000     ← 别人持锁时等 5 秒再报错,别立刻炸
+journal_mode = WAL      ← 用流水账模式写(下文细讲)
+synchronous = NORMAL    ← 流水账模式下,这个安全档位够用
+cache_size = -64000     ← 给页缓存 64MB
+mmap_size = 256MB       ← 热数据直接映射进内存地址空间
+</code></pre>
+<p>唯一要记的顺序细节:<code>busy_timeout</code> 必须第一条。如果打开时恰有别人在写库,后面的设置和首条查询都得排队——不先声明"愿意等",它们会直接抛 "database is locked"。</p>
+<h2 id="写得快三个批量窗口"><a class="header" href="#写得快三个批量窗口">写得快:三个"批量窗口"</a></h2>
+<p>全量索引几十万行,逐行维护索引和触发器是纯浪费——反正结束时会整体重建。于是连接对象提供三个窗口 API,思路都是<strong>先把监工请出去,干完活再请回来</strong>:</p>
+<ol>
+<li><strong>节点窗口</strong>:DROP 掉全文索引的三个触发器 → 海量 INSERT 直通(不再每行更新倒排索引)→ 结束时一条命令整表重建;</li>
+<li><strong>解析窗口</strong>(仅全新库):DROP 掉全部二级索引。主键和 UNIQUE 保留——去重逻辑靠它们的冲突检测活着;</li>
+<li><strong>边窗口</strong>:DROP 四个非唯一边索引。实测 22 万条边的插入从 2.8 秒降到 1.1 秒,事后重建只花 0.3 秒。</li>
+</ol>
+<p>读 db 层源码时会撞见一个古怪细节:重建索引的每条 CREATE 语句之间插了 <code>setImmediate</code> 让出事件循环。原因是一条索引在大库上就要建约 20 秒,连着建三条会超过看门狗的 60 秒耐心,<strong>健康的进程被自己的保活机制击毙</strong>。性能优化与可靠性约束打架时,后者赢——这个主题会贯穿到进阶篇。</p>
+<h2 id="读得快三件武器"><a class="header" href="#读得快三件武器">读得快:三件武器</a></h2>
+<p>查询侧的核心是 <code>QueryBuilder</code>(近 2900 行,但模式单一):</p>
+<p><strong>武器一:预编译语句缓存。</strong> 每条 SQL 只 prepare 一次存进字典,之后复用。36 个槽位全部懒初始化——没走过的代码路径零成本。</p>
+<p><strong>武器二:批量取 + LRU。</strong> 图遍历的经典惨案叫 N+1:查一个函数的 50 个调用者,循环里逐个点查 = 50 次往返。解法是双管齐下——<code>getNodesByIds</code> 把 miss 的 id 按 500 个一块塞进 <code>IN (...)</code>;高频节点进一个 1000 容量的 LRU 缓存。</p>
+<p><strong>武器三:保序批插。</strong> 批量插入按 <code>[128, 32, 8, 1]</code> 贪心分块,注释里专门警告<strong>行序必须保持输入序</strong>——回忆提取章:插入顺序是同名消歧的决胜票,批插不许打乱它。</p>
+<p>顺带一提一条看似装饰的 SQL:<code>getNodesByName</code> 末尾的 <code>ORDER BY file_path, start_line</code> 是<strong>正确性要求</strong>而非展示需要——同名候选谁排第一,决定了引用绑定给谁;没有它,增量 sync 和全量重建会给出不同答案(事故 CG-33,4.3% 的边漂移)。确定性主题第三次出现了,它值得这个出场频率。</p>
+<h2 id="wal流水账模式的收益与债务"><a class="header" href="#wal流水账模式的收益与债务">WAL:流水账模式的收益与债务</a></h2>
+<p>SQLite 默认的写法是"直接改正式账本";WAL 模式改成"先追加流水账,攒一批再誊抄回正本"。并发读写因此不再互堵——这正是 CodeGraph 要它的原因(daemon 里多个 agent 在读,writer 在增量同步)。</p>
+<p>但默认策略(<code>wal_autocheckpoint=1000</code> 页)在批量索引场景下是灾难:誊抄太勤快,热数据页被反复来回搬运,实测占了<strong>全部磁盘 I/O 的 95%</strong>,机械硬盘上 45 秒的任务变成 19 分钟。CodeGraph 的对策:索引期间干脆关掉自动誊抄,写入变成纯顺序追加(机械盘的最爱)。</p>
+<p>新问题:流水账没人管会疯长——实测一次索引涨出 5.9GB,首次读取要花 60 多秒,又被看门狗击毙。解法是一个叫 <strong>WAL 截流阀</strong>的小状态机,按增长量决定何时后台誊抄、何时暂停写入强制清账。它是全仓设计密度最高的 290 行,完整拆解放进性能章;此处只需带走直觉:<strong>关掉自动机制不是免费的,只是把账记到了别处,得有人盯着还。</strong></p>
+<h2 id="自愈每次开门先体检"><a class="header" href="#自愈每次开门先体检">自愈:每次开门先体检</a></h2>
+<p>批量窗口是"删了再建",进程中途被杀就会留下残缺状态。所以 <code>DatabaseConnection.open</code> 每次都做三件体检:触发器齐不齐?该在的索引缺没缺?流水账是不是太肥(超 64MB 就后台瘦身)?体检用的 DDL 全部从 schema.sql 现场提取——数据模型章说过,图纸只有一份。</p>
+<p>还有一招防阴沟翻船:<code>.codegraph/</code> 目录被整个删掉重建后,老数据库连接的文件句柄指向一个<strong>已经不存在的 inode</strong>——查询不报错,但永远读到旧世界。对策是记住文件的 inode 号,使用前 stat 一眼,发现换了就原地重连。(Windows 上 inode 不可靠,此检查明确跳过——平台差异承认比假装不存在好。)</p>
+<h2 id="带走三句话-2"><a class="header" href="#带走三句话-2">带走三句话</a></h2>
+<ol>
+<li>内置 SQLite = 用户侧零编译,这是分发友好性的基石;</li>
+<li>快写的本质是"把监工请出去"(触发器/索引窗口),快读的本质是"别重复劳动"(语句缓存/批量取/LRU);</li>
+<li>WAL 关自动 checkpoint 不是免费午餐——截流阀就是那本"还款计划"。</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="查询层对这张图提问"><a class="header" href="#查询层对这张图提问">查询层:对这张图提问</a></h1>
+<p>图建好了,本章用<strong>三个真实提问</strong>走完消费侧。每个问题对应一种查询机制,也各带一个值得记住的坑。</p>
+<h2 id="提问一搜-logcompletion搜索是瀑布不是一次查询"><a class="header" href="#提问一搜-logcompletion搜索是瀑布不是一次查询">提问一:"搜 logCompletion"——搜索是瀑布,不是一次查询</a></h2>
+<p><code>searchNodes(query)</code> 听起来是一次 FTS 查询,实际是一个<strong>四级降级瀑布</strong>:每一级都假设上一级会空手而归。</p>
+<p><strong>第一级:FTS 全文匹配。</strong> 用户输入先清洗:<code>::</code> 换成空格(Rust/C++ 的路径分隔符,不拆开会把 <code>stage_apply::run</code> 黏成一个词)、FTS 特殊字符剥掉、布尔关键字(AND/OR)剔除防止注入语法,然后每个词加引号加前缀通配:</p>
+<pre><code>"logCompletion"*  →  命中,排序交给 BM25
+</code></pre>
+<p>BM25 的列权重表值得背下来:<code>bm25(nodes_fts, 0, 20, 5, 1, 2)</code>——name 权重 20,碾压 qualified_name(5)和 docstring(1)。设计意图:<strong>名字里命中远比文档里顺嘴一提值钱</strong>。还有个一行代码的暗坑:SQLite 的 BM25 返回负数,源码里 <code>Math.abs(row.score)</code> 不是装饰,漏了它整个排序方向就反了。</p>
+<p><strong>第二级:LIKE 子串。</strong> FTS 为什么会空手?"signIn" 搜 "Sign" 这种大小写/分词错位时就会。回落到 <code>LIKE '%..%'</code>,并用 CASE WHEN 给出人工分数:精确 1.0、前缀 0.9、包含 0.8。</p>
+<p><strong>第三级:编辑距离模糊。</strong> 还空?容忍 1–2 个字符的拼写错误再扫一遍。这个 Levenshtein 实现做了滚动数组 + 提前剪枝,快到敢拿去扫几万个名字。</p>
+<p><strong>第四级兜底之后还有补场</strong>:无论如何都跑一次精确名查找(<code>lower(name) = lower(?)</code>,走表达式索引)。因为 BM25 有个盲区——搜 "getBean" 时,几百个含 getBean 的长名会把真身埋在深处;精确名几乎总是用户要的那个。</p>
+<p>四级结果最后统一进<strong>多信号重排</strong>:函数/method 加 10 分、test 文件减 15 分、路径与查询词相关度加分、整名相等加 80 分……所有分数只用于排序——它们量纲不同(BM25 无界,模糊分 0–1),混着比大小没有意义。</p>
+<h2 id="提问二谁调用了-complete遍历的四个不变式"><a class="header" href="#提问二谁调用了-complete遍历的四个不变式">提问二:"谁调用了 complete?"——遍历的四个不变式</a></h2>
+<p><code>getCallers(id)</code> 背后是教科书 BFS 加四个防身补丁(<code>traverseBFS</code>,graph/traversal.ts:48)。直接看代码骨架,注释即人话:</p>
+<pre><code class="language-ts">const enqueued = new Set([start.id]);   // 排过队的
+const visited  = new Set();             // 已入场的
+
+while (queue.length &gt; 0 &amp;&amp; nodes.size &lt; limit) {
+  const step = queue.shift();
+  if (visited.has(step.node.id)) continue;
+  visited.add(step.node.id);            // 入场盖章
+
+  // 邻居先批量取回,再逐边处理(否则就是 N+1)
+  const neighborNodes = this.queries.getNodesByIds(wantIds);
+
+  for (const edge of adjacentEdges) {
+    if (!visited.has(next) &amp;&amp; !enqueued.has(next)) {
+      if (nodes.size &gt;= limit) continue;      // 补丁③:每个入队点查预算
+      enqueued.add(next); queue.push(...);
+    }
+    // 补丁④:按五元组身份去重后再记录这条边
+    if (!seenEdges.has(edgeKey(edge))) edges.push(edge);
+  }
+}
+</code></pre>
+<p>四个补丁各自堵一个真实的洞(括号内为事故编号):</p>
+<ol>
+<li><strong>enqueued 和 visited 必须分开</strong>(排号 ≠ 入场)。合并的话,经两条平行边可达的目标会被排队两次,第二次出队撞上 visited 直接跳过——它的邻接边就丢了(#1090);</li>
+<li><strong>边也要去重</strong>:双向遍历时同一条 A→B 边会从两端各见一次;</li>
+<li><strong>预算在每个入队点检查</strong>,不能只在循环口——一个热门节点的百个邻居能一口气冲爆上限(#1087);</li>
+<li><strong>邻居按 contains &lt; calls &lt; 其他排序出队</strong>,让输出"先内部结构、后外部引用",符合阅读直觉。</li>
+</ol>
+<p>这些补丁单看都是废话,少任何一个都是线上 bug——所以每个都挂着编号,<strong>防止后人当冗余清理掉</strong>。读任何遍历类源码,优先找这类守卫,它们是作者踩坑史的化石层。</p>
+<p>顺带回答一个设计疑问:getCallers 的边类型清单里为什么有 <code>instantiates</code>(实例化)?因为 <code>new TaskRepository()</code> 本质上就是在调用构造器——不算上的话,查类的 callers 只剩 import 它的文件,而 trace 也会在"函数→类→方法"处断掉。</p>
+<h2 id="提问三改了-task-接口影响谁影响半径是一收一放"><a class="header" href="#提问三改了-task-接口影响谁影响半径是一收一放">提问三:"改了 Task 接口影响谁?"——影响半径是一收一放</a></h2>
+<p><code>getImpactRadius</code> 沿所有入边向上游爬,但有一条刻意的排除规则:<strong>contains 边不传播</strong>。"容器包含成员"不等于"依赖此成员"——不排除的话,改一个方法签名,影响半径会先爬到父类、再展开父类的所有兄弟成员,爆炸成半个仓库。</p>
+<p>反向却要做<strong>容器下探</strong>:焦点如果是 class/interface 这种容器,主动沿 contains 进入成员、以同等深度继续上溯。道理同样朴素——改类签名当然波及其方法的调用者。</p>
+<p>一收一放之间,是对"依赖"这个词的语义建模,而不是无脑的图可达性。</p>
+<h2 id="从查询到答案contextbuilder-与诚实脚注"><a class="header" href="#从查询到答案contextbuilder-与诚实脚注">从查询到答案:ContextBuilder 与诚实脚注</a></h2>
+<p>前三问是积木,<code>buildContext("修复登录超时")</code> 是把它们组装成一份 markdown 报告的高层入口:检索定位种子 → 图扩展补周边 → 截取代码块 → 格式化输出。三个设计细节:</p>
+<ul>
+<li><strong>预算单位是字符不是 token</strong>——token 化需要额外依赖,字符数是稳定够用的代理指标;</li>
+<li><strong>单文件占比设上限</strong>(约 20%):防止一个巨型文件把配额吃光,输出变成"该文件的独白";</li>
+<li><strong>low-confidence 是一等公民</strong>:多词散文查询若没有入口被两个以上的词共同佐证,结果打上低置信标记并在输出里追加诚实脚注。对 agent 来说,"我不确定"比自信的错答有用得多——它触发的是换策略,而不是沿着错误方向深挖。</li>
+</ul>
+<h2 id="带走三句话-3"><a class="header" href="#带走三句话-3">带走三句话</a></h2>
+<ol>
+<li>搜索是瀑布:FTS → LIKE → 模糊 → 精确名补充,统一重排但分数只用于排序;</li>
+<li>遍历的四个不变式全是事故化石,enqueued≠visited 是其中最反直觉的一个;</li>
+<li>影响半径 = 上溯排除 contains + 焦点容器下探;"包含"不等于"依赖"。</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="引用解析两阶段流水线"><a class="header" href="#引用解析两阶段流水线">引用解析：两阶段流水线</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:提取章留下一堆纸条——"第 34 行有个叫 <code>taskRepo.complete</code> 的调用"。纸条上只有名字。现在所有文件都入库了,该把每张纸条送到正确的收件人手里。听起来像查个数据库?难点在于:<code>complete</code> 可能同时存在于五个类;<code>getUserId</code> 可能是本地的也可能是 import 来的;<code>res.json</code> 压根不该连向任何业务符号。<strong>怎么在几百万张纸条里,又快又不出错地完成配送</strong>——这就是本章。</p>
+</blockquote>
+<p>提取器留下的几十万条 UnresolvedReference——只有名字、没有目标——如何变成图上真实的边？这是整个仓库算法密度最高的部分，也是"静默优于错边"原则执行最严格的地方。</p>
+<h2 id="为什么必须两阶段"><a class="header" href="#为什么必须两阶段">为什么必须两阶段</a></h2>
+<p>第一阶段（提取）跑在并行 worker 里，为了速度牺牲了全局视野：它不知道别的文件里有什么符号、import 指向哪里。第二阶段（解析）在索引基本落库后运行，此时可以查询完整的符号表和 import 图。两阶段的交接面就是 <code>unresolved_refs</code> 表：</p>
+<pre><code>pending ──解析成功──▶ 行被删除，边被创建
+   │
+   └─解析失败──▶ status='failed'，记录 name_tail
+</code></pre>
+<p>失败行<strong>不删除</strong>而是 park 起来（#1240），理由读一遍就忘不掉：一条引用所在的文件如果从此不再变更，删掉它的失败记录就意味着永远失去复活机会——直到某个<strong>别的</strong>文件新增了能满足它的导出符号时，只有全量重建才能补上这条边。park 住，sync 才有重试的原料。name_tail 辅助这个场景：<code>util.greet</code> 失败时存下尾段 <code>greet</code>，将来新出现的 <code>greet</code> 符号能通过尾段匹配找到重试入口。</p>
+<h2 id="resolveandpersistbatched主循环"><a class="header" href="#resolveandpersistbatched主循环">resolveAndPersistBatched：主循环</a></h2>
+<p><code>resolution/index.ts:1509</code> 的主循环是双缓冲流水线：</p>
+<pre><code>warmCachesYielding()                     ← 流式收集全部已知名字（同步版曾阻塞 28s）
+batch = getUnresolvedReferencesBatchAfter(0, 5000)   ← keyset 分页，非 OFFSET
+loop:
+  beginBatch(batch)                      ← 大批且池健康 → fan-out 给 resolver worker
+  nextBatch = 预取下一批                  ← prefetch 与当前批并行
+  result = settleBatch(...)
+  createEdges(result.resolved)           ← ★ 边必须先于下一批 fan-out 持久化
+  insertEdges(chunk 1000 + yield)
+  delete 已解 refs（按 rowId）
+  mark 未解 refs 为 failed
+</code></pre>
+<p>四个设计点：</p>
+<p><strong>keyset 分页替代 OFFSET。</strong> OFFSET 在有大量 failed 前缀时会每次重走整段跳过区，内核规模实测 54.6 秒。<code>WHERE status='pending' AND id &gt; ?</code> 让每一页都是索引直达。</p>
+<p><strong>edges-before-fanout 顺序约束。</strong> 后面的批次会读到前面批次刚建的 extends/implements 边（resolveMethodOnType 要沿超类型链走），所以已解边的持久化必须先于下一批的计算 fan-out。dubbo 上验证过：乱序执行会把 typed-receiver 的置信度从 0.9 掉到 0.65——不是崩溃，而是悄悄变笨。</p>
+<p><strong>按 rowId 删除。</strong> #1269 的教训：按 (fromNode, name, kind) 键删除会连带删掉同 caller 同 callee 不同行的兄弟行——当批次边界恰好切开同一个函数的多个同名调用点时，后面那半的边就永远不会被创建了。rowId 精确制导。</p>
+<p><strong>并行池门槛 150k。</strong> <code>minRefsForPool()</code> 默认 150,000 条引用才启用 worker 池——中型仓库实测池化反而更慢（分发开销大于收益）。自适应逻辑还会观察前几批耗时：投影出本批 ≥400ms 且没试过池化时中途启动。一切以实测为准，不做理论最优。</p>
+<h2 id="resolveone策略阶梯"><a class="header" href="#resolveone策略阶梯">resolveOne：策略阶梯</a></h2>
+<p>单条引用的解析是一个有序的策略瀑布（L855 起），每级要么给出带置信度的答案，要么放行给下一级。先看真实骨架：</p>
+<pre><code class="language-ts">resolveOne(ref: UnresolvedRef): ResolvedRef | null {
+  if (this.isBuiltInOrExternal(ref)) return null;          // ① builtins
+
+  // ② 快速预过滤:名字在任何地方都不存在、不是本地 import、
+  //    框架也不认领 → 直接放弃。import 逃生的注释值得读:
+  //    re-export 改名链(import { login } from './barrel')会
+  //    调用一个"任何地方都没有声明"的名字,必须放行
+  const preFilterPass =
+    this.hasAnyPossibleMatch(existenceName) ||
+    this.matchesAnyImport(ref) ||
+    this.frameworks.some(f =&gt; f.claimsReference?.(ref.referenceName));
+  if (!preFilterPass) return null;
+
+  // ③ function_ref 严格通道:this.&lt;member&gt; 只对 enclosing class
+  //    的自有成员解析——"never a same-named symbol elsewhere"
+  if (ref.referenceKind === 'function_ref') { ... }
+
+  // ④ JVM FQN 直查 qualifiedName 索引:
+  //    "即使多个包里都有 Bar 也无歧义"
+  const jvmImport = resolveJvmImport(ref, this.context);
+  if (jvmImport) return jvmImport;
+
+  const candidates: ResolvedRef[] = [];
+
+  // ⑤ 框架优先,confidence ≥0.9 早退
+  for (const framework of this.frameworks) {
+    const result = this.gateFrameworkLanguage(framework.resolve(ref, this.context), ref);
+    if (result?.confidence &gt;= 0.9) { fwEarly = result; break; }
+    if (result) candidates.push(result);
+  }
+  if (fwEarly) return fwEarly;
+
+  // ⑥ import 解析(相对/别名/工作区),≥0.9 早退……
+  // ⑦ ……然后才是 name-matcher 打分与 fuzzy(见下文)
+}
+</code></pre>
+<p>阶梯的排序逻辑是<strong>信息含量递减</strong>:builtins 是确定的知识,预过滤是廉价的否定,JVM FQN 是结构化的肯定,框架知识是领域特权,import 是半结构化线索,最后的同名打分是纯启发式。越靠前的通道给出的答案越可信,所以高置信度结果(≥0.9)允许中途早退,低置信度的一律进 candidates 池最后择优。</p>
+<p>几个特判也值得一读。CFML 组件路径(<code>extends="coldbox.system.web.Controller"</code>)用点分路径命名超类型,L864 的处理注释以 "silent beats wrong" 收尾——全路径字符串流落到下游只可能错配。Razor 的 <code>@using</code> 命名空间解析则展示了相反的场景:<code>CatalogBrand</code> 在 DTO 和领域实体两处同名,只有文件头的 using 列表能裁定该连哪个。</p>
+<p><strong>第 ½ 级：快速预过滤。</strong> <code>hasAnyPossibleMatch</code> 用 knownNames 集合做存在性检查（处理 <code>a.b</code> 尾段、JVM FQN 尾段等各种分隔符形状），这一步把绝大多数垃圾引用挡在了昂贵匹配之外。</p>
+<p><strong>function_ref 严格通道。</strong> 函数值引用走专用路径：先查 import，再 matchFunctionRef，<strong>永不到 fuzzy</strong>。bareFnOnly 语言（TS/JS/C++/Python/PHP）里裸标识符只匹配 function 目标。"unique-or-drop"——两个候选都像就都不选。</p>
+<p><strong>JVM FQN 直查。</strong> Java 的全限定名直接命中 qualified_name 索引，零歧义。</p>
+<p><strong>框架优先于通用匹配。</strong> 26 个框架 resolver 有机会先认领引用（confidence ≥0.9 早退）：Express 认领 middleware 命名约定，Spring 认领注解模式……它们掌握通用 matcher 不可能知道的领域知识。</p>
+<p><strong>import 解析。</strong> <code>resolveViaImport</code> 回答"这个名字是从哪个文件来的"。相对导入逐扩展名探测（<code>.ts,.tsx,.d.ts,.js,/index.ts...</code>，每种语言一张候选表）；别名导入按 tsconfig paths（递归解析 extends！）→ workspace packages → legacy 硬编码的顺序尝试；Cargo workspace 的成员 glob 由独立模块提供；Go 用 go.mod 的 module path 判定本地包。有一类特殊：C/C++ include、COBOL copybook、PHP include <strong>只解析到文件节点且失败时不回落到符号名匹配</strong>——注释的理由就是那句 mantra："a wrong edge is worse than none"。头文件路径歧义太大，宁可断链。</p>
+<p><strong>同名消歧打分。</strong> 到达 name-matcher 的引用已经排除了所有结构化线索，只剩名字。matchByExactName 对多候选打分：同文件最强，其次是目录邻近度（公共目录段 ×15、上限 80）、同语言族（jvm/apple/web/c/dotnet 四族，跨族引用直接禁掉）、函数方法优先、exported 优先。但首先有个天花板：<strong>AMBIGUOUS_NAME_CEILING = 500</strong>，超过直接放弃——#999 里 vendored 主题目录让一个名字撞出几千个候选，O(K²) 打分直接把进程拖死。fuzzy 匹配只在唯一候选时生效，camelCase 词重叠才敢算数。</p>
+<h2 id="第二遍等边建好的那些引用"><a class="header" href="#第二遍等边建好的那些引用">第二遍：等边建好的那些引用</a></h2>
+<p>第一遍有两种引用注定失败，它们被收进内存中的 deferred 队列（必须是内存态——DB 里的行已经被删了）：</p>
+<p><strong>链式调用（#750）。</strong> <code>Foo::instance().bar()</code> 编码成的 <code>instance().().bar</code> 形状需要知道 <code>instance()</code> 的返回类型才能继续，而返回类型信息要沿 implements/extends 边找 conformance——这些边第一遍还没建完。于是 <code>resolveChainedCallsViaConformance</code> 在主 pass 结束后运行：clearCaches 重读新鲜边，逐条拆链。receiver 类型来自 inner callee 的 returnType（提取器 getReturnType hook 存的）或 self/static 标记；resolveMethodOnType 的 conformance fallback 经 generation-tagged memo 走超类型图——memo 必须 tagged，因为 supertype 边在循环中持续增长，普通缓存会冻结早期批次的空答案。</p>
+<p><strong>this 成员回调（#808）。</strong> <code>btn.on('click', this.handleClick)</code> 注册在子类，handleClick 声明在父类 <code>FormBase</code>。第一遍既没有继承边也做不了类型推断。deferred 版本的实现是个漂亮的图算法：上溯起点锚定为 <strong>ref 自己文件里的同名 class 节点</strong>——注释强调 "never a same-named class elsewhere; rails has a dozen <code>Engine</code>s"，曾经按名字找起点导致每个 Engine 的父类被合并出错边——然后 node-anchored BFS 沿 implements/extends 上溯（深度上限 5），在每个超类型上沿 contains 边找同名成员，命中给 0.85 置信度。</p>
+<p>两个 deferred pass 的共同哲学：<strong>不是所有事都能一次做完，但每件事都应该在它能做对的最早时刻做。</strong></p>
+<h2 id="sync-时的正确性维护"><a class="header" href="#sync-时的正确性维护">sync 时的正确性维护</a></h2>
+<p>增量同步对解析层的挑战比全量更微妙。三个机制值得记住：</p>
+<p><strong>复活（resurrection）。</strong> sync 删除文件前，先把指向它的入边还原成原始引用文本存回 unresolved_refs。关键细节是 edge metadata 里存了 <code>refName</code>——原始引用文本而非 target 名字。从 <code>h.greet</code> 的 target 还原只能得到 <code>greet</code>，丢掉 receiver 上下文后重新解析的绑定范围会比全量重建宽。原文的表述值得抄录："a faithful resurrection, so re-resolution can never bind anywhere a full re-index wouldn't."</p>
+<p><strong>改绑（rebind, CG-33）。</strong> 一个未 touch 的文件引用了 <code>helper.parse</code>；这次 sync 里 helper 文件变了，parse 的定义移动或消失。definitionDelta 在 sync 前后采样 <code>(file, name)</code> 定义对，差集驱动 <code>resurrectStaleResolutionEdges</code> 把受影响文件的旧边重新裁决。body-only 编辑产生空 delta，零成本通过。实测这个机制纠正了 4.3% 的边——增量正确性的成本远比想象高。</p>
+<p><strong>孤儿清扫（#1187）。</strong> 进程中途被杀会在 unresolved_refs 里留下 pending 行。不变式："after a COMPLETED pass nothing it processed is still 'pending'"——于是任何静止状态的 pending 行都属于中断的运行，sync 开头批量磨平即可。这让 <code>codegraph sync</code> 成为 wedged index 的标准恢复命令。</p>
+<h2 id="本章小结"><a class="header" href="#本章小结">本章小结</a></h2>
+<p>两阶段流水线一句话概括：<strong>第一阶段用并行换速度、用暂存表换视野；第二阶段用策略阶梯换精度、用 deferred 队列换依赖顺序的正确处理。</strong> 所有环节共享同一条底线——不确定的时候宁可断链，因为下游有一个会沿着错边走向深渊的 agent。</p>
+<p>下一章处理解析永远做不到的事：那些根本没有静态调用点的动态分发。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="动态分发与合成边"><a class="header" href="#动态分发与合成边">动态分发与合成边</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:引用解析再聪明,也只能连接语法树上<em>写得出来</em>的调用。但 <code>notifyChange()</code> 循环里那句 <code>cb()</code> 到底会调到谁?AST 不知道——答案藏在运行时的注册关系里。静态分析在这里有个原则性的天花板:<strong>看不见的调用,任何解析器都无中生有不了。</strong> 本章讲 CodeGraph 怎么用"启发式合成"在天花板上开洞,以及开洞的代价。</p>
+</blockquote>
+<p>引用解析能处理的调用都有共同前提：<strong>AST 里存在静态可见的被调名字</strong>。但现代代码库中大量数据流不满足这个前提——回调注册、事件总线、React 重渲染、依赖注入、消息队列。这些边在 AST 中根本不存在，任何解析器都无中生有不了。</p>
+<p>CodeGraph 的回答是第三条生产边通道：<strong>合成</strong>。<code>callback-synthesizer.ts</code>（3792 行）在解析完成后扫描整张图，用启发式模式推断"这里虽然没写 <code>f()</code>，但实际上会调用 f"，补上 <code>kind:'calls'</code>、<code>provenance:'heuristic'</code> 的边。</p>
+<h2 id="为什么值得一条断链的价值"><a class="header" href="#为什么值得一条断链的价值">为什么值得：一条断链的价值</a></h2>
+<p>先看动机。agent 问"更新元素怎么触发重渲染"，图上真实的链路是：</p>
+<pre><code>mutateElement → triggerUpdate → [回调注册] triggerRender → [setState→render] render → [JSX 子组件] StaticCanvas.renderStaticScene
+</code></pre>
+<p>三个方括号处都是动态分发，静态解析全部断链。没有合成边时，explore 工具只能把断链前后的片段分别给出，agent 不得不 Read 文件自己接上——实测这种"半桥接"状态反而把 Read 次数从基线的 9–10 次推高到 5–10 次：agent 看到了一半答案，于是更执着地想读完另一半。</p>
+<p>只有把 <strong>jsx-child 这一跳也补上</strong>之后，Read 才降到 0–2 次。这个实验（记录在 CLAUDE.md 和 coverage playbook）确立了一条铁律：</p>
+<blockquote>
+<p><strong>部分覆盖比零覆盖更糟。</strong> 桥接了一个边界却不桥接下一个，等于给 agent 展示了一条它注定走不完的路。每个新 synthesizer 上线前必须验证整条 flow 端到端闭合。</p>
+</blockquote>
+<h2 id="合成边的形状"><a class="header" href="#合成边的形状">合成边的形状</a></h2>
+<p>所有合成边遵守统一契约：</p>
+<pre><code class="language-ts">{ source, target, kind: 'calls',
+  provenance: 'heuristic',
+  metadata: {
+    synthesizedBy: 'react-render',        // 哪个 pass 造的
+    registeredAt: 'src/scene.ts:142',     // 接线点：注册/绑定发生在哪一行
+  } }
+</code></pre>
+<p><code>registeredAt</code> 是点睛之笔。注释解释："This is the #1 thing an agent reads/greps to explain the flow."——当 agent 想确认"triggerRender 真的会被调用吗"，它需要的不是更多源码而是那个注册位置；有了行号，一次 codegraph_node 就能验证，不用 Grep。</p>
+<h2 id="两大通道形态"><a class="header" href="#两大通道形态">两大通道形态</a></h2>
+<p>36 个 pass 大多归结为两种模式（文件头 L1–23 给出了范式）：</p>
+<p><strong>形态一：字段背书的观察者。</strong></p>
+<pre><code>onChange(cb) { this.listeners.add(cb); }      // registrar（登记者）
+notifyChange() { for (cb of this.listeners) cb(); }   // dispatcher（分发者）
+taskRepo.onChange(logCompletion)              // registration（接线）
+      ⇒ 合成 notifyChange → logCompletion
+</code></pre>
+<p>识别靠命名门 + 体切片。真实代码(<code>fieldChannelEdges</code>,callback-synthesizer.ts:179,有删节):</p>
+<pre><code class="language-ts">for (const m of methodAndFunctionNodes(queries)) {   // 惰性迭代器,#610 OOM 教训
+  if ((++scanned &amp; 255) === 0) await onYield();      // #1091:大图扫描中途让出心跳
+  const isReg  = REGISTRAR_NAME.test(m.name);
+  const isDisp = DISPATCHER_NAME.test(m.name);
+  if (!isReg &amp;&amp; !isDisp) continue;
+  const src = sliceLines(ctx.readFile(m.filePath), m.startLine, m.endLine);
+  if (isReg)  { const f = registrarField(src);  if (f) registrars.push({ node: m, field: f }); }
+  if (isDisp) { const f = dispatcherField(src); if (f) dispatchers.push({ node: m, field: f }); }
+}
+// 配对阶段:registrar 的每条 incoming calls 边 = 一个潜在接线点
+for (const reg of registrars) {
+  const chDispatchers = dispatchers.filter(d =&gt;
+    d.node.filePath === reg.node.filePath &amp;&amp; d.field === reg.field);   // 同文件同 field
+  for (const e of queries.getIncomingEdges(reg.node.id, ['calls'])) {
+    const line = ctx.readFile(caller.filePath)?.split('\n')[e.line - 1];
+    const am = line?.match(new RegExp(`${reg.node.name}\\s*\\(\\s*(?:this\\.)?(\\w+)`));
+    if (!am) continue;                                 // 从实参捕获回调名
+    const fn = ctx.getNodesByName(am[1]).find(n =&gt; n.kind==='method'||n.kind==='function');
+    for (const disp of chDispatchers) {
+      edges.push({ source: disp.node.id, target: fn.id, kind: 'calls',
+        provenance: 'heuristic',
+        metadata: { synthesizedBy: 'callback', via: reg.node.name,
+          registeredAt: `${caller.filePath}:${e.line}` });   // 接线点入档
+    }
+  }
+}
+</code></pre>
+<p>这段代码的每个细节都在实证章的玩具仓库里被验证过——包括它<strong>拒绝工作</strong>的时刻:<code>addChangeListener</code> 因不匹配 REGISTRAR_NAME 而静默落空,改名 <code>onChange</code> 后 <code>notifyChange --&gt; logCompletion @src/server.ts:5</code> 立即出现。启发式的全部智慧押在命名约定上,这正是它既廉价又脆弱的地方。</p>
+<p>精度护栏同样清晰:<strong>同文件同 field</strong> 才配对(跨文件的 field channel 会把不相干的类连起来);<code>MAX_CALLBACKS_PER_CHANNEL=40</code> 封顶单个 registrar 的扇出;惰性迭代器让内存 O(1) 于节点数(#610 曾因物化全部函数节点在符号密集项目上耗尽数 GB)。</p>
+<p><strong>形态二：字符串键的事件发射器。</strong> <code>this.on('mount', fn)</code> 与 <code>this.emit('mount')</code> 靠事件名配对，fan-out 上限 6——泛化名字如 'error' 直接跳过，否则一个 error 事件能把几十个 handler 全连上。</p>
+<h2 id="注册表巡礼"><a class="header" href="#注册表巡礼">注册表巡礼</a></h2>
+<p>SYNTH_PASSES（L3536）目前 36 个 pass，各自带语言门控。按生态抽样：</p>
+<ul>
+<li><strong>React 系</strong>：<code>renderEdges</code>（class 含 render 且兄弟方法调 <code>this.setState(</code> ⇒ 该方法→render；setState 门保证只命中类组件，注释承认 over-approximation 但强调 reachability-correct）；<code>jsxEdges</code>（render 返回树里的子组件标签 ⇒ render→子组件）；<code>thunkEdges</code>/<code>rtkEdges</code>（Redux thunk 与 RTK Query hook 命名约定）；</li>
+<li><strong>Vue/Pinia/Vuex</strong>：store 的 actions/getters 对象字面量成员在提取层就被提为 function 节点（tree-sitter.ts 顶部的 VUE_STORE_COLLECTION_NAMES），synth 负责把它们接入 dispatch 链；</li>
+<li><strong>移动端</strong>：Flutter setState、ArkUI 状态/Emitter/Routes、React Native Fabric 事件桥；</li>
+<li><strong>企业级</strong>：MyBatis（Java mapper 接口 ↔ XML 映射 id）、Spring/MediatR/Celery/Sidekiq/Laravel Event；</li>
+<li><strong>系统级</strong>：C 函数指针表——这个 pass 有特殊待遇，它调用内核的可选能力 <code>cfnptrScanFiles()</code> 在 Rust 侧批量扫描，避免 TS 侧逐文件正则（内核章再会）；</li>
+<li><strong>Erlang behaviour</strong>：gen_server 回调约定。</li>
+</ul>
+<p>执行模型上有个一致性保证：36 个 pass 先各自算完、结果合并去重后<strong>统一插入</strong>。这样无论顺序执行还是池化 fan-out，每个 pass 看到的是同一份提交后的 DB 状态。语言门控用一次 <code>DISTINCT files.language</code> 判断——纯 C 仓库直接跳过全部 Kotlin/JVM pass，#1212 记录了不做门控时的 OOM。</p>
+<h2 id="边界的诚实"><a class="header" href="#边界的诚实">边界的诚实</a></h2>
+<p>合成边的覆盖范围有清晰的边界声明。CLAUDE.md 把前沿划在这里：</p>
+<blockquote>
+<p>Reactive/reconciler runtimes are the frontier — flows there have no static edges, so nothing surfaces (<strong>correctly — silent beats wrong</strong>).</p>
+</blockquote>
+<p>Vue 的 Proxy 响应式、Halo 的 ReactiveExtensionClient 这类运行时，注册关系藏在框架内部的反射和代理里，模式匹配不出来。此时正确行为是<strong>沉默</strong>——不给工具输出一个似是而非的假链路。这与"静默优于错边"一脉相承：synthesizer 的野心有边界，而边界之外宁可空白。</p>
+<p>另一个边界是成本。每加一个 pass 都是一次全图扫描，所以语言门控、fan-out cap（MAX_CALLBACKS_PER_CHANNEL=40）、pass 合并插入这些工程细节不是洁癖，是让"36 个 pass"在内核规模仓库上仍然秒级完成的必要条件。</p>
+<p>至此图的构建全部讲完：tree-sitter 提取静态事实，resolver 补全跨文件绑定，synthesizer 补全动态行为。下一章转向性能——当这套管线要在一个 4 万文件的 monorepo 上跑完，每个环节都需要重新审视。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="原生内核rust-加速路径"><a class="header" href="#原生内核rust-加速路径">原生内核：Rust 加速路径</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:WASM 提取管线已经能跑,为什么还要用 Rust 重写一遍提取逻辑?答案不是"Rust 快"(那只是零头),而是<strong>数据搬运</strong>:几十万个符号对象从 worker 搬到主线程要逐字段拷贝;换成 Rust 侧输出一块平坦内存,搬运就变成一次 memcpy。但引入原生二进制有代价——跨平台分发、版本错配、行为不一致。本章讲 CodeGraph 怎么把这份代价压到"可选、静默、随时可退回"。</p>
+</blockquote>
+<p><code>codegraph-kernel/</code> 是仓库里唯一的 Rust 代码：一个 napi-rs crate，用原生 tree-sitter 绑定重新实现了 TS 提取 walker 的行为等价物。它不是重写，而是<strong>替换</strong>——只替换 worker 内部的 parse+extract 那一步，对外仍走同一个 <code>ExtractionResult</code> 契约，下游的 resolution/synthesis/MCP 一概不知情。</p>
+<h2 id="定位哲学可选静默可回滚"><a class="header" href="#定位哲学可选静默可回滚">定位哲学：可选、静默、可回滚</a></h2>
+<p>loader（<code>src/extraction/kernel/loader.ts</code>）头注释把设计立场说得非常清楚：</p>
+<blockquote>
+<p>The kernel is OPTIONAL everywhere. Every failure mode here resolves to <code>null</code> and the extraction path silently keeps using the wasm pipeline — a missing or stale kernel must never break indexing, only skip the speedup.</p>
+</blockquote>
+<p>加载顺序：环境变量 <code>CODEGRAPH_KERNEL_PATH</code> → 发布捆绑位置 <code>&lt;pkgRoot&gt;/kernel/codegraph-kernel.node</code> → 源码构建位置 <code>prebuilds/&lt;platform&gt;-&lt;arch&gt;/</code>。任何一步失败返回 null，调用方回落 WASM。<code>CODEGRAPH_KERNEL=0</code> 是随时可用的总开关。</p>
+<p>加载成功后还有一道<strong>契约校验</strong>（verifyContract）：调用内核的 <code>contractInfo()</code>，比对 ABI 版本和 NodeKind/EdgeKind 表——后者必须<strong>字节相等</strong>。原因在数据模型章埋过伏笔：kinds 以数组下标跨越 JS/Rust 边界，两边数组顺序不同就是灾难性的错位解码。校验失败的 stale <code>.node</code> 静默降级而不是硬错误——宁可慢，不可错。</p>
+<h2 id="二进制布局一次跨界五块-buffer"><a class="header" href="#二进制布局一次跨界五块-buffer">二进制布局：一次跨界，五块 buffer</a></h2>
+<p>每次文件提取只发生一次 JS↔Rust 调用，返回五段平坦内存（<code>layout.ts</code>，与 Rust 侧 <code>buffers.rs</code> 逐字节镜像）：</p>
+<pre><code>META (36B)    u8 abiVersion | u32 nodeCount/edgeCount/refCount
+              | u32 arenaLen | errorsOff/Len(JSON) | f64 durationMs
+NODE (96B/行) u8 kind | u8 visibility | u16 flags | u32 起止行列
+              | str name | str qualifiedName | str id | str docstring
+              | str signature | str decorators(NUL 连接) | str returnType ...
+EDGE (44B/行) u32 sourceIdx | u32 targetIdx | u8 kind | u8 provenance
+              | u32 line/col | str metadataJson | str sourceIdStr/targetIdStr
+REF  (40B/行) u32 fromIdx | u8 kind | u8 flags | u32 line/col
+              | str referenceName | str candidates | str fromIdStr
+ARENA         全部 UTF-8 字符串的连续存储
+</code></pre>
+<p>三个值得咀嚼的设计：</p>
+<p><strong>字符串是 (offset,len) 对</strong>。所有字符串堆进一个 arena，行结构里只存偏移——这是零拷贝序列化的经典手法，让 Rust 侧不需要为每个字段分配独立的 Vec。</p>
+<p><strong>kind 是下标</strong>。u8 存 NODE_KINDS 数组下标而非字符串。省空间只是次要原因，主要原因是让契约校验成为可能：下标方案强制两边声明共享的顺序表，parity 测试才有明确的断言对象。</p>
+<p><strong>NONE = 0xffffffff 哨兵</strong>。"field absent" 用固定值表示而不是空指针或长度 0——跨 FFI 边界上 Option 语义的最廉价编码。</p>
+<p>edges 用行号索引指回 node 表，解码端维护 <code>idByRow[]</code> 还原；个别无法用行号表达的情形（如引用指向尚未入表的节点）有 <code>sourceIdStr</code> fallback 字符串列。<code>decode.ts</code> 的解码循环就是逐行 subarray + 读定宽字段的机械操作，183 行写完。</p>
+<h2 id="路由哪些文件走内核"><a class="header" href="#路由哪些文件走内核">路由：哪些文件走内核</a></h2>
+<p>默认路由表覆盖 20 种主流语言（TS/TSX/JS/JSX/Java/Python/Go/C/C++/Rust/C#/Ruby/PHP/Swift/Kotlin/R/Lua/Luau/Scala/Dart），每项附带 parity gate 记录——切换该语言的日期、验证仓库、字节级 parity 的文件数、deferral 率。env 可整体覆盖。</p>
+<p>per-file 还有一道<strong>安全阀</strong>：解析树含 ERROR 节点的文件，内核主动以 <code>defer:</code> 错误抛回，WASM 接管。理由写在注释里：</p>
+<blockquote>
+<p>error recovery differs between UTF-8 and UTF-16 parsing — wasm's recovery is canonical.</p>
+</blockquote>
+<p>tree-sitter 的错误恢复产物不保证规范，而两条实现路径对同一份残缺代码可能恢复出不同的树。与其让图的内容取决于"这个文件恰好走了哪条路"，不如统一交给 WASM 权威。defer 结果有单槽 memo 缓存——Linux kernel 仓库的 defer 率约 79%（大量宏展开导致的解析错误），不缓存的话每个 seam 都要白付一次 blank+native-parse 的代价。</p>
+<p>preParse hook 的处理同样体现了行为等价的执念：C/C++ 宏空白化、CUDA/Metal 方言 token 处理这些 TS 侧的前置变换，会在调内核<strong>之前</strong>应用——两边 parse 相同的字节，Rust 侧就不需要移植任何方言逻辑。</p>
+<h2 id="零物化快路径"><a class="header" href="#零物化快路径">零物化快路径</a></h2>
+<p>内核最大的性能红利不在解析本身，而在数据搬运。批量索引时 parse-worker 走 <code>tryKernelExtractRaw()</code>：五块 buffer <strong>不解码</strong>直接塞进 <code>ExtractionResult.kernelBuffers</code>，postMessage 给主线程/ store-worker——Node 的 structured clone 对 Uint8Array 是 memcpy 级别，于是 per-node 的 JS 对象从头到尾没有被创建过。解码被推迟到 store 边界（store-worker 收到 bundle 时执行 decodeKernelBundle）。</p>
+<p>对照 WASM 路径：worker 里 walk AST 创建几十万个 <code>{id, kind, name, ...}</code> 对象 → structured clone 逐字段拷贝 → 主线程 GC 压力。内核路径把这条链压缩成了三次大块内存复制。</p>
+<h2 id="构建与分发"><a class="header" href="#构建与分发">构建与分发</a></h2>
+<p><code>scripts/build-kernel.sh</code> 包装 cargo build --release 并把产物改名为 <code>codegraph.node</code> 放进 prebuilds 目录。发布 workflow 在 macos-arm runner 上交叉编译全部平台。脚本里有一条值得单独记录的注释：</p>
+<blockquote>
+<p>复制前先 rm 保证新 inode —— overwriting a signed dylib in place leaves macOS's per-inode signature cache stale, and every process that then dlopens the staged .node is SIGKILLed at load.</p>
+</blockquote>
+<p>macOS 按 inode 缓存签名验证结果，原地覆盖签名库会让后续 dlopen 直接被杀。这类平台深坑在本仓的处理方式一贯是：注释里讲清因果链，然后让代码绕开它。</p>
+<h2 id="小结-1"><a class="header" href="#小结-1">小结</a></h2>
+<p>内核章展示的是这个项目演化到后期的典型模式：<strong>新能力一律做成可选旁路 + 契约校验 + 静默降级</strong>，主路径永远保持"没有它也完整正确"。这与 MCP 层的做法（daemon 可禁用、watchdog 可关闭、worker 池可熔断回退）一脉相承——整个系统没有一个单点是不可缺失的。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="mcp-服务器与进程拓扑"><a class="header" href="#mcp-服务器与进程拓扑">MCP 服务器与进程拓扑</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:一个本地索引服务,用户是 IDE 和 agent 会话——它们随时被杀、被重启、被挂起。<strong>你的进程怎么知道自己该死、不该死、还是该替别人收尸?</strong> CodeGraph 的答案是一套五层 watchdog 加三模式启动决策。读之前先记住一个视角:这里每个看似过度的机制,都对应一种真实发生过的崩溃形态(括号里的编号就是病历)。</p>
+</blockquote>
+<p><code>src/mcp/</code> 是仓库里最"工程"的部分：协议、daemon、watchdog、worker 池。它回答一个朴素的问题——<strong>当你的用户是一个不靠谱的宿主（IDE）和一个会话式的 agent 时，一个本地服务要怎么活下来？</strong></p>
+<h2 id="三种启动模式"><a class="header" href="#三种启动模式">三种启动模式</a></h2>
+<p><code>MCPServer.start()</code> 的决策树很短：</p>
+<ol>
+<li><code>CODEGRAPH_DAEMON_INTERNAL=1</code> → 本进程就是 detached daemon；</li>
+<li><code>CODEGRAPH_NO_DAEMON=1</code> → direct 模式，单 stdio 会话自给自足；</li>
+<li>找不到 <code>.codegraph/</code> 根 → 也走 direct（没什么可共享的）;</li>
+<li>否则 → <strong>proxy 模式</strong>（默认路径）。</li>
+</ol>
+<p>默认拓扑值得画出来：</p>
+<pre><code>Claude Code ──spawn──▶ proxy 进程 ──socket──▶ detached daemon
+Cursor       ──spawn──▶ proxy 进程 ──socket──▶ （同一个）
+opencode     ──spawn──▶ proxy 进程 ──socket──▶
+</code></pre>
+<p>host 启动的 proxy 是个轻量转发器，daemon 才持有全部重状态（CodeGraph 实例、watcher、查询池）。这样设计的原因（#411）：daemon 是 detached 独立进程组，关掉一个终端不会杀掉其他客户端的会话；而每个 host 仍然拥有自己的 proxy，proxy 带着 PPID watchdog——host 被 SIGKILL 后也能回收自己。<strong>每个组件只负责自己的死亡，不假设别人的生命周期。</strong></p>
+<h2 id="socket-协议与锁仲裁"><a class="header" href="#socket-协议与锁仲裁">socket 协议与锁仲裁</a></h2>
+<p>POSIX 上 daemon 监听 <code>.codegraph/daemon.sock</code>（路径过长则退到 tmpdir），Windows 上是命名管道 <code>\\.\pipe\codegraph-&lt;hash&gt;</code>。连接建立的第一件事是身份握手：</p>
+<pre><code>daemon → 一行 JSON: { codegraph: version, pid, socketPath, protocol: 1 }
+proxy  → 校验版本后开始字节转发；可选回发 { codegraph_client: 1, pid, hostPid }
+</code></pre>
+<p>两个细节体现了防御深度。其一，proxy 自报 pid 是为了 daemon 能做死客户端扫描——Windows 命名管道的 close 事件不可靠（#692），主动 sweep 比被动等待可靠。其二，握手读取器在 finish 前<strong>必须 <code>socket.pause()</code></strong>：移除 data listener 不会让 flowing stream 停下来，unshift 回去的尾字节会在零监听者状态下被丢弃——#662 记录的这个 wedge 让整个会话挂起。</p>
+<p>daemon 单例靠文件锁仲裁，实现是教科书级的原子性操作：先把完整 JSON 写进 temp 文件，然后 <code>fs.linkSync()</code> 落位到锁路径——link 在目标已存在时失败且原子，杜绝了 O_EXCL create 与 write 之间被插入第二个 daemon 的微秒窗口。无硬链接的文件系统（ExFAT）回退 'wx' 标志打开。</p>
+<h2 id="生命周期三种死亡方式"><a class="header" href="#生命周期三种死亡方式">生命周期：三种死亡方式</a></h2>
+<p>daemon 怎么知道自己该退场？三个独立机制覆盖三种形态：</p>
+<ul>
+<li><strong>正常空闲</strong>：最后一个客户端断开后 linger 300s（env 可调），然后退出；</li>
+<li><strong>幽灵客户端</strong>：close 事件永远不来（Windows 管道问题、host 崩溃）——每 30s 扫描一次，对每个客户端做 proxy/host pid 存活探测，全灭才退场。backstop 兜底 30 分钟硬上限。措辞很讲究："绝不杀 live-but-quiet 会话";</li>
+<li><strong>孤儿 launcher</strong>：见下节 watchdog 家族。</li>
+</ul>
+<h2 id="watchdog-家族"><a class="header" href="#watchdog-家族">watchdog 家族</a></h2>
+<p>这是本仓可靠性设计的精华，五层机制各对应一种事故形态：</p>
+<p><strong>EARLY_PPID</strong>（<code>early-ppid.ts</code>）。CLI 的第一个 import 就记录 <code>process.ppid</code>。动机（#1185）：launcher 若在头 ~100ms 被 SIGKILL，等代码跑起来时 ppid 已经 reparent 成 1，基于 ppid 变化的检测永远不会触发。所以要在最早的时刻拍快照。</p>
+<p><strong>ppid-watchdog</strong>。每 5s 对比当前 ppid 与快照——变了就是父进程死了，自杀。Windows 的 ppid 恒定，改用对原始 ppid 做 liveness 探测（平台差异又一次被显式建模而非假装不存在）。</p>
+<p><strong>startup-handshake</strong>。#1185 的另一种形态：host 杀了 launcher 链但 stdin 管道被第三方持有，stdin 永远不 EOF，PPID 检测失效。兜底是 15 分钟内没收到任何 stdin 字节即视为被遗弃的 launch，自行退场。第一个字节到达即解除武装。</p>
+<p><strong>liveness-watchdog</strong>。前面四层管"父进程死了"，这层管"自己卡了"。#850 发现主线程陷入非分配的原生循环时（比如 SQLite 长语句），V8 isolate 到不了 safepoint，连 worker 线程的 watchdog 都会饿死。解法是用<strong>子进程</strong>：parent 每 tick 向 child stdin 写心跳，child 超时 60s 收不到就 SIGKILL parent——子进程没有共享堆，内核信号无视父线程状态。误杀防护是 progressPaths：心跳静默期间检查 DB/WAL 文件的 size/mtime 快照，前进了说明是慢盘上的合法长语句，宽限（上限 10×timeout）。</p>
+<p><strong>liftoff 中间进程的补偿</strong>。提取章讲过 <code>--liftoff-only</code> 重执行会插入中间进程，PPID 检测从此失真。补偿是把真 host pid 通过 <code>CODEGRAPH_HOST_PPID</code> env 穿透到最终进程，watchdog 直接 poll 它。</p>
+<p>五层机制合起来是一张完整的死亡语义表。读这段代码最好的姿势不是记细节，而是问"如果去掉这一层，哪种崩溃形态会成为孤儿/僵尸/冻结？"——每一层都有明确的答案。</p>
+<h2 id="冷启动竞态与查询池"><a class="header" href="#冷启动竞态与查询池">冷启动竞态与查询池</a></h2>
+<p>agent 会话的头几秒是最脆弱的。engine.ts 用三招压冷启动：惰性 <code>require('../index')</code> 把 sqlite/graph 层推迟到首次工具调用；initialize 握手<strong>先响应再做重活</strong>（#172）；后台 catchUpSync 作为一次性 gate——首个工具调用等它完成，保证 agent 看到的索引不会落后于磁盘太多。</p>
+<p>查询并发用 worker 池解决（daemon 模式）：同步的 node:sqlite 共享一个事件循环，10 个并发 explore 曾把宏任务饿死 25 秒无心跳。池里每个 worker 各持一条 WAL 读连接（WAL 的多读单写模型正好支持），主线程只剩写入和协调。熔断保护齐全：worker 崩溃重试一次、预算 12 次后标记 unhealthy 回退进程内执行；过载时返回<strong>成功形状</strong>的"忙，稍候重试"而不是错误——理由见下一章的错误形状哲学。</p>
+<h2 id="工具面总览"><a class="header" href="#工具面总览">工具面总览</a></h2>
+<p>tools.ts（7008 行）定义八个工具：search / callers / callees / impact / node / explore / status / files。但默认只暴露一个——<code>DEFAULT_MCP_TOOLS = new Set(['explore'])</code>（L1303），其余可用 env 重新启用。这个激进的决定来自实测：agent 面对 8 个工具时会平均用力，explore 的采用率反而下降；只给它一个，flow 问题的解决路径就唯一了。小于 500 文件的仓库进一步收缩为三件套。</p>
+<p>工具行为的核心设计在 explore 和 node 两个工具上，它们是"为 agent 设计工具"方法论的集中体现——值得单独一章（下一章）。</p>
+<p>最后提一句指令面：<code>server-instructions.ts</code> 是 MCP initialize 响应返回的使用指南，也是全仓<strong>唯一</strong>的 agent 指导真源。曾经 installer 会往 CLAUDE.md/AGENTS.md 里写一份复制品，两处漂移后（issue #529）被砍掉——现在工具指导只此一份。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="为-agent-设计工具codegraph_explore"><a class="header" href="#为-agent-设计工具codegraph_explore">为 agent 设计工具：codegraph_explore</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:前几章的读者是工程师;本章的"用户"是一个不看文档、不重试、受挫一次就可能永久拉黑你的 LLM。<strong>怎么让这样的消费者用好一张图?</strong> 答案出人意料:不是教它,而是把工具做到它无法拒绝——并且这个结论是被一组失败的实验反推出来的。</p>
+</blockquote>
+<p>如果说前几章是"怎么把图建好"，这一章是"怎么让一个不会读文档、不重试、一受挫就放弃的消费者用好这张图"。<code>codegraph_explore</code> 是整个产品与 agent 的接触面，它的每个设计决定都经过 A/B 实测。</p>
+<h2 id="方法论改造工具而不是改造-agent"><a class="header" href="#方法论改造工具而不是改造-agent">方法论：改造工具，而不是改造 agent</a></h2>
+<p>CLAUDE.md 里有一段被验证过多次的结论，值得作为本章公理：</p>
+<blockquote>
+<p>CodeGraph 影响 agent 的通道只有两个低显著度的入口——initialize 指令和工具描述。改变它们<strong>不能</strong>可靠地改变 agent 的工具选择或查询风格（trace-first 措辞实验三次变体全部失败且回退墙钟时间）。有效的是让 agent <strong>已经在调用的工具</strong>对它<strong>已经给出的输入</strong>做更多的事。</p>
+</blockquote>
+<p>翻译成设计语言：不要发明新工具指望 agent 学会用，不要在指令里写使用技巧指望 agent 遵守；把智能做进那个它反正会调的工具里。explore 就是这个公理的产物——它是 agent 默认会碰的那个名字最通用的工具，所以 flow 检索、路径构建、上下文补全全部塞进了它的单次调用里。</p>
+<h2 id="预算系统随仓库规模单调"><a class="header" href="#预算系统随仓库规模单调">预算系统：随仓库规模单调</a></h2>
+<p>explore 有两套预算，都是文件数的阶梯函数：</p>
+<div class="table-wrapper"><table><thead><tr><th>索引文件数</th><th>调用预算</th><th>单次输出上限</th><th>单文件上限</th></tr></thead><tbody>
+<tr><td>&lt;500</td><td>1</td><td>18K chars</td><td>3800</td></tr>
+<tr><td>&lt;5000</td><td>2</td><td>24K</td><td>6500</td></tr>
+<tr><td>&lt;15000</td><td>3</td><td>24K</td><td>7000</td></tr>
+<tr><td>&lt;25000 / ≥25000</td><td>4 / 5</td><td>24K</td><td>7000</td></tr>
+</tbody></table>
+</div>
+<p>两条硬性不变式写在维护文档里：<strong>更大的档位绝不能拿到更小的 per-file 上限</strong>（回归教训：Excalidraw 的 415KB App.tsx 在某档位只被切了 1% 出来，agent 被迫 Read 全文）；<strong>输出总量不得超过 ~25K 字符</strong>——超过 host 的内联 tool-result cap，结果会被外置成文件让 agent 再读回来，等于重新引入 Read。</p>
+<p>预算分配算法（allocateExploreBudget）按 <code>score × worth × spineBoost</code> 加权，低于榜首一定比例的非核心文件整体剔除（cliff），每人保底 MIN_CHARS，pinned 文件（查询里点名的路径）权重至少追平最强候选。</p>
+<h2 id="buildflowfromnamedsymbolsexplore-的心脏"><a class="header" href="#buildflowfromnamedsymbolsexplore-的心脏">buildFlowFromNamedSymbols：explore 的心脏</a></h2>
+<p>agent 调 explore 时给的是一串符号名（这是 initialize 指令反复训练的用法："flow 问题点名跨越流程的符号"）。<code>buildFlowFromNamedSymbols</code>（tools.ts:2515）把这些名字变成一条叙事线：</p>
+<ol>
+<li><strong>Token 化</strong>：≥3 字符、标识符形状、≤16 个；</li>
+<li><strong>共名消歧</strong>：每个 token 经 findAllSymbols 解析；歧义的简单名只有在 container 类也被点名时才保留对应候选——查 "PmsProductServiceImpl list" 时 <code>list</code> 绑定到 Pms 的方法而不是 Oms 的同名方法；</li>
+<li><strong>主链搜索</strong>：从每个种子 BFS（骑合成边），只接受同为 named 的终点，MAX_HOPS=7，<strong>MAX_BRIDGE=1</strong>——最多容忍连续一跳未命名桥接。这个上限是防走神的缰绳：没有它，搜索会一头扎进 god-function 的扇出里再也出不来；</li>
+<li><strong>断链诚实</strong>：链不上的 token 触发三路补充——dynamic boundaries（扫描断链符号 body 里的 computed member/getattr/reflection/bus emit，最多 4 条 bullet 告诉 agent "这里有个运行时分发"）、boundary candidates（约定命名探测如 <code>onSave</code>/<code>handleSave</code>）、polymorphic boundaries（大同名家族 + 图上可见的多态实现者）。</li>
+</ol>
+<p>渲染时 Flow 区段每跳都带内联源码和接线点，合成边标注为 <code>dynamic: react-render via setState @file:line</code>——上一章的 registeredAt 在这里兑现价值。</p>
+<h2 id="node-工具sufficiency-的教科书"><a class="header" href="#node-工具sufficiency-的教科书">node 工具：sufficiency 的教科书</a></h2>
+<p>explore 找到入口后，agent 用 <code>codegraph_node</code> 下钻。这个工具有两种模式：file-only 时是 Read 等价物（字节级对齐 Read 的行格式 + blast-radius 头部）；symbol 模式则体现"sufficiency 原则"——<strong>答案要完整到让 agent 不需要第二个来源</strong>：</p>
+<ul>
+<li>返回完整函数体 + caller/callee 轨迹；</li>
+<li><strong>歧义名一次返回所有重载的 body</strong>（12K 预算、硬顶 16 个）。Alibaba/gin 上的实测教训：agent 猜错重载后会去 Read 文件找正确的那个——一次调用给全，Read 就永远不会发生。</li>
+</ul>
+<h2 id="错误形状即行为工程"><a class="header" href="#错误形状即行为工程">错误形状即行为工程</a></h2>
+<p>tools.ts 的错误处理哲学值得单独背诵。<code>execute()</code> 的 catch 分三类：</p>
+<ul>
+<li><code>NotIndexedError</code> → <strong>成功形状</strong>的文本指引（告诉 agent 怎么索引/换 projectPath），绝不 isError；</li>
+<li><code>PathRefusalError</code> → 干净的 isError（希望 agent 放弃这条敏感路径）;</li>
+<li>真故障 → isError 附带"可重试一次"提示。</li>
+</ul>
+<p>为什么未索引不算错误？因为维护者反复观察到：<strong>一两次 isError 就会让 agent 整个会话弃用 codegraph</strong>。agent 的行为模型里，工具报错 = 工具坏了 = 回到 Grep。所以一切预期内的状态都用成功形状传递语义。忙碌、过载同理（query-pool 的 busyGuidance 也是成功形状）。</p>
+<h2 id="会话感知与去重"><a class="header" href="#会话感知与去重">会话感知与去重</a></h2>
+<p>daemon 是跨会话共享的，但探索历史必须按会话隔离（CG-17）：两个 agent 同时工作，去重历史互相污染会闹出"你没给我看过这个"的冤案。ExploreSessionState 挂在 session 对象上，容量限额齐全（4 项目 × 8 次调用 × 24 文件）。跨调用的重复内容折叠成一句指针："Already sent earlier in this conversation"——指令里专门解释这是指针不是缺口，防止 agent 把折叠当成信息缺失而重新请求。</p>
+<h2 id="验证方法论"><a class="header" href="#验证方法论">验证方法论</a></h2>
+<p>这套设计的验收标准同样值得一提（详见 docs/benchmarks/ 与 CLAUDE.md）：每个改动跑 with/without codegraph 的 A/B，至少两轮取范围（n=1 的结论一律不作数）；模型固定 Sonnet——刻意用"地板模型"验证，强模型的工具使用能力会掩盖 affordance 缺陷，而在弱模型上成立的改进才能向下泛化到用户实际在用的各种 agent；CLI 被钩子阻断防止 without 臂偷偷用 Bash 调 codegraph 污染数据。Excalidraw 工作样例的最终数字：0–2 Read / 0–4 Grep / 3–4 codegraph / 51–74s，对照无图基线的 9–10 Read / 两分钟以上。</p>
+<h2 id="本章小结-1"><a class="header" href="#本章小结-1">本章小结</a></h2>
+<p>explore 的设计可以压缩成一个反馈回路：agent 点名符号 → 工具给出端到端的流 → 答案足够完整 → agent 停手。每一环都有对应的工程机制（消歧、合成边、sufficiency 输出、预算控制），而回路的总开关是那条元原则：<strong>别教育 agent，把工具做到它无法拒绝。</strong></p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="性能工程watchdogwal-与内存纪律"><a class="header" href="#性能工程watchdogwal-与内存纪律">性能工程：watchdog、WAL 与内存纪律</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:前面各章的性能手段(批量窗口、worker 池、内核加速)散落各处,但它们都服从同一条军规:<strong>主线程任何停顿不得超过 60 秒</strong>——因为有一个子进程在数着心跳,超时会直接 SIGKILL 你。本章把散落的机制收拢,看这条军规如何塑造了整个代码库的异步形状,以及当两个正确目标打架时(快 vs 活着)谁赢。</p>
+</blockquote>
+<p>最后一章把散落各章的性能机制收拢成一张图。这个仓库的性能工程有一个总纲，先立在此处：</p>
+<blockquote>
+<p><strong>任何主线程停顿不得超过 60 秒</strong>（#850 liveness watchdog 的硬约束）。所有异步代码的形状——逐语句 yield、离线程化、双窗口超时——都是这条约束的推论。</p>
+</blockquote>
+<h2 id="心跳的三种织法"><a class="header" href="#心跳的三种织法">心跳的三种织法</a></h2>
+<p>"别让事件循环饿死"说起来一句话，做起来有三种手法：</p>
+<p><strong>合作式 yield。</strong> 长循环（引用解析、合成 pass、索引重建）周期性调用 <code>createYielder()</code> 产出的 <code>maybeYield()</code>，让出事件循环让 timer 和 I/O 回调得以执行。endBulkEdgeLoad 重建索引时甚至给每条 CREATE INDEX 之间插 <code>setImmediate</code>——单条重建就是 ~20s 的全表扫描，三条连跑就撞线。</p>
+<p><strong>离线程化。</strong> 不能切片的工作整个搬走：WAL checkpoint、PRAGMA optimize 用 eval:true 的内联 Worker 源码在独立连接上执行；查询走 worker 池；解析、存储各有专职 worker。主线程只保留协调职责。</p>
+<p><strong>进度感知的宽限。</strong> 心跳静默不一定是卡死，可能是慢盘上的合法长语句。liveness-watchdog 的 progressPaths 在超时时检查 DB/WAL 的 size/mtime 快照：前进了就宽限（上限 10×timeout=10 分钟）。"区分慢和死"是这个设计最聪明的一步。</p>
+<h2 id="超时的诚实化"><a class="header" href="#超时的诚实化">超时的诚实化</a></h2>
+<p>与心跳配套的是一套"假超时"防护。朴素实现里，worker 超时就杀——但 parse-pool 的注释记录了一个反例：主线程同步执行 SQLite store 会推迟 timer phase 的处理，worker 的结果明明已经到了却"迟到"，朴素超时把健康的 worker 杀了。修正后的语义是：base timer 到期<strong>只标记</strong> <code>timerExpired</code> 并继续接受迟到结果（worker 自报 parseMs 用于事后归因），3 倍硬窗口之后才真杀。per-parse 预算还随文件大小缩放：<code>min(base + len/100KB × 10s, max(base,20s))</code>——#1555 里一个数据头文件曾吃掉 4.5 分钟才被硬杀。</p>
+<h2 id="wal-截流阀一个完整的状态机样本"><a class="header" href="#wal-截流阀一个完整的状态机样本">WAL 截流阀：一个完整的状态机样本</a></h2>
+<p>存储章埋的伏笔在这里兑现。<code>wal-valve.ts</code> 解决的问题链值得完整复述一遍：</p>
+<p>默认 <code>wal_autocheckpoint=1000</code> 页在批量索引期间反复把热 B-tree/FTS 页重写进主库文件——实测占全部磁盘 I/O 的 <strong>95%</strong>，HDD 上 45 秒的任务变 19 分钟。所以 indexAll 关闭自动 checkpoint，写入变成纯顺序 WAL 追加。但无限推迟是另一种死法：WAL 每 COMMIT 复制热页，3.3k 文件的索引曾涨出 5.9GB 的 WAL，第一次读取要 &gt;60 秒——健康索引被自己的 watchdog 击毙。</p>
+<p>Valve 的关键洞察是一个反直觉的事实：<strong>WAL 文件的尺寸永不缩小</strong>。完整回填后 writer 下次 commit 从顶部循环覆写，文件大小不再反映积压量。所以 valve 维护 <code>sizeAtLastFullBackfill</code> 基线（只在 checkpoint 报告 busy===0 且 log===checkpointed 时刷新），按<strong>超出基线的增长量</strong>决策：</p>
+<ul>
+<li>soft 线（默认 clamp(dbSize/4, 256MB, 2GB)）：后台发起离线程 PASSIVE 回填；</li>
+<li>hard 线（2×soft）或裸文件尺寸超 fileCap（4×soft）：暂停 writer，parked barrier 下强制整段回填直到一次完整回填报告，此时无 reader 才敢 TRUNCATE 切小文件；</li>
+<li><strong>futility latch</strong>：连续两次因 reader 钉住而放弃 ⇒ 60s 内禁用暂停机制，退化回旧行为而不是每次越界烧 20 个线程——这正是某次 OOM（exit 137）的事故现场教训；</li>
+<li><strong>铁律：对活跃 writer 绝不 TRUNCATE</strong>——truncate checkpoint 会赢锁竞争然后阻塞 writer 整个回填时长，超过 5s busy_timeout 直接令索引报 "database is locked" 失败。</li>
+</ul>
+<p>一段 290 行的代码里塞进了背压、基线、熔断、屏障四种模式，而且每一种都能指回一个具体事故。</p>
+<h2 id="内存纪律"><a class="header" href="#内存纪律">内存纪律</a></h2>
+<p>WASM 与原生堆的内存问题在本仓有一套组合拳：</p>
+<ul>
+<li>parser 每 5000 次解析重建（堆碎片化）、池 worker 每 250 次 recycle；</li>
+<li><code>tree.delete()</code> 放 finally——树的原生内存对 GC 不可见；</li>
+<li>OOM 即崩溃即换血（worker process.exit(1)，池顶替新进程）；</li>
+<li>resolver 缓存全部 LRU 有界（max 1000）+ generation tag（依赖中的边在增长时缓存必须失效）；</li>
+<li>内核路径干脆不让 per-node 对象存在（kernelBuffers 直通 store 边界）;</li>
+<li>长命 reader 会钉住 WAL checkpoint 进度（实测 deletes 从 42.6s 恶化到 118.8s），所以池 worker 在空闲边界关开连接，QueryBuilder 只清语句缓存保住上层 warm cache。</li>
+</ul>
+<h2 id="大库上的两个极端手段"><a class="header" href="#大库上的两个极端手段">大库上的两个极端手段</a></h2>
+<p>最后两招属于"常规手段失效后"的范畴：</p>
+<p><strong>O(1) 重建</strong>。中毒索引（#1065：160 万节点、多 GB WAL）上，逐行 DELETE 会触发 FTS delete-trigger 风暴，开索引之前就把 watchdog 拖死。<code>CodeGraph.recreate</code> 直接 unlink 数据库三件套再初始化——删除一个文件的复杂度从 O(nodes) 变成 O(1)。</p>
+<p><strong>reader rebind</strong>。池 worker 的读连接定期关开（rebind，db/queries.ts:332）释放对 checkpoint 的钉扎，代价只是下次使用时重新 prepare 语句。性能账算得非常细：warm cache 保住、语句缓存重编，净收益为正。</p>
+<h2 id="收束性能与正确性的同构"><a class="header" href="#收束性能与正确性的同构">收束：性能与正确性的同构</a></h2>
+<p>回顾全书，会发现本仓的性能工作与正确性工作遵循同一个元模式：<strong>每个机制都锚定在一个可复现的事故上，每个事故都沉淀为一条带编号的不变式。</strong> #850 给出 60 秒约束，#1231 给出 WAL 基线方案，#1090 给出入队去重规则，CG-33 给出 ORDER BY……这不是巧合，而是工程文化：不允许"看起来会更好"的改动，只接受"修掉 #xxx"或"A/B 数据支持"的改动。</p>
+<p>读源码时遇到任何费解的防御性写法，先找它的 issue 编号——那通常比代码本身好懂得多。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="附录公共-api-导航"><a class="header" href="#附录公共-api-导航">附录：公共 API 导航</a></h1>
+<p>本附录是 <code>CodeGraph</code> 类公共方法到内部实现的导航表，供读源码时定位。语义细节见各章正文。</p>
+<h2 id="生命周期"><a class="header" href="#生命周期">生命周期</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>方法</th><th>内部路径</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>CodeGraph.init(root, {index})</code></td><td><code>src/index.ts:279</code></td><td>建目录 → 初始化 schema → 可选 indexAll</td></tr>
+<tr><td><code>CodeGraph.open(root, {sync})</code></td><td><code>:335</code></td><td>打开 + 迁移 + 自愈（存储章）</td></tr>
+<tr><td><code>CodeGraph.recreate(root)</code></td><td><code>:381</code></td><td>unlink 三件套后重建（性能章）</td></tr>
+<tr><td><code>reopenIfReplaced()</code></td><td><code>:249</code></td><td>inode 检测，<code>.codegraph/</code> 被删重建时原地换连接</td></tr>
+<tr><td><code>close()</code></td><td><code>:448</code></td><td>unwatch → release lock → db.close</td></tr>
+</tbody></table>
+</div>
+<h2 id="索引与同步"><a class="header" href="#索引与同步">索引与同步</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>方法</th><th>内部路径</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>indexAll(options)</code></td><td><code>:471</code></td><td>全量：双互斥 → fast-init → WAL 阀 → bulk 窗口 → 解析 → 合成（架构章）</td></tr>
+<tr><td><code>indexFiles(paths)</code></td><td><code>:757</code></td><td>watcher 快路径的定向子集</td></tr>
+<tr><td><code>sync(options)</code></td><td><code>:777</code></td><td>增量：复活入边 → definitionDelta rebind → 孤儿清扫（解析章）</td></tr>
+<tr><td><code>watch()/unwatch()</code></td><td><code>:1057/:1084</code></td><td>FileWatcher，自适应防抖，降级闩</td></tr>
+</tbody></table>
+</div>
+<h2 id="查询"><a class="header" href="#查询">查询</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>方法</th><th>内部路径</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>searchNodes(query, options)</code></td><td><code>:1371</code></td><td>四级降级瀑布（查询章）</td></tr>
+<tr><td><code>getSegmentMatches(words)</code></td><td><code>:1391</code></td><td>段词表匹配 + honesty gate（数据模型章）</td></tr>
+<tr><td><code>getCallers/getCallees(id, depth)</code></td><td><code>:1719/:1730</code></td><td>GraphTraverser，含 instantiates 与合成边</td></tr>
+<tr><td><code>getImpactRadius(id, depth)</code></td><td><code>:1743</code></td><td>排除 contains 的上游 BFS + 容器下探</td></tr>
+<tr><td><code>findPath(from, to)</code></td><td><code>:1755</code></td><td>BFS 最短路</td></tr>
+<tr><td><code>getTypeHierarchy(id)</code></td><td><code>:1695</code></td><td>extends/implements 双向</td></tr>
+<tr><td><code>findCircularDependencies()</code></td><td><code>:1808</code></td><td>文件级依赖图 DFS 找环</td></tr>
+<tr><td><code>buildContext(input, options)</code></td><td><code>:1901</code></td><td>ContextBuilder 全管线（查询章）</td></tr>
+<tr><td><code>findRelevantContext(query, opts)</code></td><td><code>:1865</code></td><td>explore 的 gather 核心</td></tr>
+</tbody></table>
+</div>
+<h2 id="mcp-工具面默认仅-explore"><a class="header" href="#mcp-工具面默认仅-explore">MCP 工具面（默认仅 explore）</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>工具</th><th>入口（tools.ts）</th><th>要点</th></tr></thead><tbody>
+<tr><td><code>codegraph_explore</code></td><td>handleExplore :3220</td><td>buildFlowFromNamedSymbols + PageRank（工具章）</td></tr>
+<tr><td><code>codegraph_node</code></td><td>:5962</td><td>file 模式 = Read 等价物；symbol 模式全重载一次给全</td></tr>
+<tr><td><code>codegraph_search</code></td><td>:2125</td><td>FTS + 重排，generated 文件沉底</td></tr>
+<tr><td><code>codegraph_callers/callees/impact</code></td><td>:2205/:2278/:2348</td><td>多定义分组列出</td></tr>
+<tr><td><code>codegraph_status/files</code></td><td>:6350/:6474</td><td>主线程专用 / 树形输出</td></tr>
+</tbody></table>
+</div>
+<p>预算函数：<code>getExploreBudget</code>（tools.ts:166）、<code>getExploreOutputBudget</code>（:215）——两套阶梯必须保持单调不变式。</p>
+<h2 id="环境变量速查高频"><a class="header" href="#环境变量速查高频">环境变量速查（高频）</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>变量</th><th>作用</th></tr></thead><tbody>
+<tr><td><code>CODEGRAPH_MCP_TOOLS</code></td><td>重新启用非默认工具，如 <code>explore,node</code></td></tr>
+<tr><td><code>CODEGRAPH_NO_DAEMON=1</code></td><td>禁用 daemon，单进程 direct 模式</td></tr>
+<tr><td><code>CODEGRAPH_KERNEL=0</code></td><td>关闭 Rust 内核，全部走 WASM</td></tr>
+<tr><td><code>CODEGRAPH_NO_WATCHDOG=1</code></td><td>关闭 liveness watchdog</td></tr>
+<tr><td><code>CODEGRAPH_PARSE_WORKERS</code></td><td>覆盖解析池大小（0/1 回滚单线程）</td></tr>
+<tr><td><code>CODEGRAPH_WAL_VALVE_MB</code> / <code>CODEGRAPH_WAL_HEAL_MB</code></td><td>WAL 阈值调优</td></tr>
+<tr><td><code>CODEGRAPH_DIR</code></td><td>数据目录改名（Windows/WSL 共树场景）</td></tr>
+<tr><td><code>DO_NOT_TRACK=1</code> / <code>CODEGRAPH_TELEMETRY=0</code></td><td>关闭遥测</td></tr>
+</tbody></table>
+</div>
+<h2 id="构建与验证"><a class="header" href="#构建与验证">构建与验证</a></h2>
+<pre><code class="language-bash">npm run build        # tsc + 复制 schema.sql 和 *.wasm 到 dist/
+npm test             # vitest run
+npm run eval         # 构建 + 运行评估 runner
+mdbook build docs/book   # 本文档
+</code></pre>
+<p>注意：新增 SQL 或 grammar wasm 必须同步进 copy-assets 步骤，否则不会随包发布。</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="对比code-review-graph-交叉分析"><a class="header" href="#对比code-review-graph-交叉分析">对比:code-review-graph 交叉分析</a></h1>
+<p><code>~/Projects/code-review-graph</code>(下称 <strong>CRG</strong>,Python)和本仓(<strong>CodeGraph</strong>,TypeScript)是什么关系?一句话:<strong>同一家餐厅的两种经营模式</strong>。后厨几乎一样——都用 tree-sitter 把代码切成语法树、都存进 SQLite、都在本地跑、都通过 MCP 端菜给 AI agent。但一家做的是"帮厨师边炒边查菜谱"(CodeGraph,服务<em>写代码</em>的时刻),另一家做的是"菜品出厂前的质检报告"(CRG,服务<em>审代码</em>的时刻)。</p>
+<p>这一章不罗列功能表。我们挑四个具体问题,看两家餐厅各自怎么上这道菜——差异自然就浮出来了。</p>
+<h2 id="问题一我改了这个函数会炸到谁"><a class="header" href="#问题一我改了这个函数会炸到谁">问题一:"我改了这个函数,会炸到谁?"</a></h2>
+<p>这是影响分析(impact analysis),两边都有的功能,但算法形状完全不同。</p>
+<p>CodeGraph 的答案像<strong>顺着水管倒着摸</strong>:从函数节点出发,沿着"谁调用了我"的边一层层往外爬(BFS),爬到哪算哪。它的实现(<code>traverseBFS</code>)里最费心思的是防重复:同一条边可能被两端各遇见一次,要按 <code>source|target|kind|line|col</code> 五元组去重;一个热门函数有一百个调用者时,邻居要一次性批量取回而不是查一百次库。</p>
+<p>CRG 的答案像<strong>给水管的每段标了漏水量</strong>:它不数跳数,而是给每种边定权重(CALLS 边 1.0 分、INHERITS 继承边 0.9、TESTED_BY 0.7…),每往外爬一跳分数乘 0.6 衰减,最后给你一个<strong>总分</strong>。而且它默认不用内存图库(networkx 只是备胎),而是把整个 BFS 写成 SQL 在临时表里迭代——图再大也不占内存。</p>
+<p>同一个问题,两种输出形态:<strong>路径列表</strong>(哪些文件、哪些行)vs <strong>风险分数</strong>(0 到 1 的一个数)。为什么?因为下一个消费者不同——CodeGraph 的分数要喂给 agent 的眼睛(它要看具体位置才能去验证),CRG 的分数要喂给 CI 门禁(<code>fail-on-risk</code>,超过 0.70 直接让 PR 不过)。<strong>输出跟着消费者走,这是一切差异的总纲。</strong></p>
+<h2 id="问题二这个按钮点击之后到底调用了什么"><a class="header" href="#问题二这个按钮点击之后到底调用了什么">问题二:"这个按钮点击之后到底调用了什么?"</a></h2>
+<p>这是全书反复出现的动态分发问题,也是最能看出设计品味的地方。看这段真实的代码:</p>
+<pre><code class="language-ts">class TaskRepository {
+  onChange(cb) { this.listeners.add(cb); }        // 注册:把回调存起来
+  notifyChange() { for (cb of this.listeners) cb(); }  // 触发:挨个调用
+}
+taskRepo.onChange(logCompletion);   // 接线:在这里发生!
+</code></pre>
+<p><code>notifyChange()</code> 调用 <code>logCompletion</code> 这件事,<strong>语法树上根本不存在</strong>——AST 只能看到"遍历集合并调用元素"。静态解析到这里必然断链。两家怎么补?</p>
+<p><strong>CodeGraph 的办法:事后扫描 + 记录案发现场。</strong> 建完图后,36 个"合成器"逐个扫图,认名字:<code>onChange</code> 匹配 registrar 约定(以 on/addListener/subscribe 开头),<code>notifyChange</code> 匹配 dispatcher 约定(含 notify/emit/fire),然后去注册行的源码里正则捕获实参名 <code>logCompletion</code>,凭空造一条边:</p>
+<pre><code>notifyChange ──calls──▶ logCompletion
+   标注:synthesizedBy=callback, registeredAt=src/server.ts:5
+</code></pre>
+<p>精髓在 <code>registeredAt</code> 这个标注——它记下了"这条边是在第 5 行接上的"。当 agent 半信半疑想验证时,直接看第 5 行就行,不用再去 Grep 全仓库找证据。(本书实证篇做过完整实验:方法名改成 <code>addChangeListener</code> 这种不在约定里的名字,合成器会<strong>静默拒绝工作</strong>——宁可断链不可造假边。)</p>
+<p><strong>CRG 的办法:给事件本身发身份证。</strong> 它不是在两个函数之间拉线,而是造一个虚拟的中间节点:</p>
+<pre><code>publishEvent() ──▶ [Event: task_completed] ◀── onTaskCompleted()
+</code></pre>
+<p>Spring 的事件总线、Temporal 的工作流、DI 容器的注入(INJECTS 边)都是这个思路。好处是事件成了可查询的实体("谁在监听 X?"是一个模式查询);代价是你没法把它当成一条连续的调用路径念出来。</p>
+<p>一个是<strong>侦探式</strong>(还原案发过程),一个是<strong>户籍式</strong>(建立登记制度)。如果你的下游是 agent 的 trace 叙事,前者顺手;如果是架构审计报表,后者整齐。</p>
+<h2 id="问题三帮我找处理登录的代码"><a class="header" href="#问题三帮我找处理登录的代码">问题三:"帮我找处理登录的代码"</a></h2>
+<p>注意这个问题里没有出现任何标识符——没有函数名、没有类名,是纯人话。这恰好打在两家的能力盲区互补处。</p>
+<p>CodeGraph 的检索栈是 <strong>FTS5 单路做深</strong>:全文索引只认词,"处理登录的代码"拆出来的中文词在标识符世界里颗粒无收。它的补救是把检索做成四级瀑布(FTS 不中→LIKE 子串→编辑距离模糊→精确名补充),外加一张"驼峰拆词表"——把 <code>handleLoginAuth</code> 拆成 handle/login/auth 存进辅助表,这样搜 "auth" 能命中驼峰名。但前提仍是:<strong>查询里得有英文词</strong>。</p>
+<p>CRG 加了一条向量通道:可选安装 sentence-transformers,把每个符号的名字+签名+文档编码成语义向量,搜索时做相似度匹配。"处理登录的代码"在语义空间里离 <code>authenticateUser</code> 就近了很多。代价也直白:多一个几百 MB 的模型依赖,云厂商 API 还会把你的代码文本发出去(CRG 为此专门做了出口告警)。</p>
+<p>所以这里有一条清晰的互借清单:CodeGraph 缺语义搜索(它赌的是"MCP 指令能把 agent 教得会用符号名提问"),CRG 的 extras 可选依赖模式值得抄;而 CRG 的 FTS 权重偏心(name 列权重 20 压倒 docstring 的 1)这类细节,双方其实已经互相趋同。</p>
+<h2 id="问题四agent-打开门的那一刻"><a class="header" href="#问题四agent-打开门的那一刻">问题四:agent 打开门的那一刻</a></h2>
+<p>两个项目对"agent 会怎么用我"做了<strong>相反的赌注</strong>,这是全篇最深的一条裂缝。</p>
+<p>CodeGraph 的实验记录里写着一条血泪结论:往 MCP 指令里写"请先用 trace 工具"、换三种措辞、加示例——<strong>全部无效</strong>,agent 该怎么干还怎么干,墙钟时间甚至变差了。于是它走向减法:默认只暴露<strong>一个</strong>工具(<code>codegraph_explore</code>),把 flow 检索、路径构建、源码内联全部塞进这一次调用里;错误响应永远伪装成成功(实测 agent 收到两次报错就会整个会话弃用你);输出预算随仓库规模单调递增,且绝不超过 host 的内联上限——超了会被转存成文件,agent 又得读一遍,前功尽弃。</p>
+<p>CRG 走的是相反的加法:<strong>30 个工具、5 个提示模板</strong>(review_changes/debug_issue/onboard_developer…)、每个响应末尾带 <code>next_tool_suggestions</code> 字段主动推荐下一步、随包分发 7 个 Claude skills 当操作手册。最激进的一招是一个 PreToolUse hook:<strong>拦截 agent 发起的每一次 Grep/Glob/Read,在它执行前往结果里注入图的上下文</strong>——等于不等客人点菜,直接往菜里加料。</p>
+<p>哪个对?诚实地说:<strong>取决于宿主 agent 听不听话</strong>。强模型的工具选择能力好,货架式(30 个工具)反而灵活;弱模型面对一堆工具会平均用力,专家柜台式(1 个工具)才保得住采用率。CodeGraph 刻意用 Sonnet 这种"地板模型"做验证,就是赌用户手里的 agent 大多是弱的;CRG 的目标用户(跑 PR 流水线的团队)场景更固定,hook 拦截可控性更高。两条路线还没有公开的正面交锋数据。</p>
+<h2 id="数据模型5-种积木够不够"><a class="header" href="#数据模型5-种积木够不够">数据模型:5 种积木够不够?</a></h2>
+<p>前面四个问题看完了,回头看一个基础分歧,现在它好理解了。</p>
+<p>CodeGraph 有 <strong>23 种节点类型</strong>(file/class/method/route/component/union…),CRG 只有 <strong>5 种</strong>(File/Class/Function/Type/Test)。乍看 CRG 太糙,但换个问法:它的查询需要吗?它的 17 种图模式(谁调用它/谁测试它/谁监听它/谁消费它…)在 5 种积木上全能表达,而 Test 作为独立种类直接进了风险公式("测试缺口占 0.30 权重")——<strong>它不需要知道什么是 route,因为它的 17 种查询模式没有一个问得到路由</strong>。</p>
+<p>反过来,CodeGraph 没有 Test 类型,但 explore 输出里那句 "no tests found within 3 caller hops" 已经暴露了需求——只是它的解法是靠路径降权(test 目录 ×0.3)而非建类型。<strong>类型系统是查询需求的投影</strong>,这句话是读懂一切 schema 设计差异的钥匙。</p>
+<h2 id="最后工程性格"><a class="header" href="#最后工程性格">最后:工程性格</a></h2>
+<p>日常相处下来,两个仓库的性格差异比技术差异更鲜明。</p>
+<p>翻 CodeGraph 的代码,到处是这种注释:"仅靠 visited 守卫入队会让经两条平行边的目标被排队两次(#1090)"——<strong>每个防御性写法都挂着一场事故的编号</strong>,像是把 bug 报告钉在了案发现场。翻 CRG 的代码,看到的是另一种清单:"禁止 eval/exec/pickle、subprocess 一律 list 参数、所有返回给 MCP 的名字必须过 <code>_sanitize_name</code> 剥控制字符(256 字符上限,防 prompt 注入)"——<strong>它防御的不是自己的历史失误,而是送进渲染管道的不可信输入</strong>(review 场景天生要吃别人的 diff)。</p>
+<p>一个向后看(每行代码都有来历),一个向外看(每个入口都有门禁)。遥测的选择也是同构的:CodeGraph 做 opt-in 遥测研究用户怎么用产品;CRG 一行遥测都没有,唯一的网络出口是用户显式配置的 embedding 服务。两种性格没有高下,但决定了两个项目各自会在哪里摔倒、在哪里长出铠甲。</p>
+<h2 id="选型速断以及都装的真实代价"><a class="header" href="#选型速断以及都装的真实代价">选型速断——以及"都装"的真实代价</a></h2>
+<ul>
+<li>你要<strong>边写代码边问结构问题</strong>(callers、trace、impact,agent 在循环里高频调用)→ CodeGraph,它是为这个循环调的音;</li>
+<li>你要<strong>审 PR、管风险、留档架构</strong>(CI 门禁、PR 评论、wiki、社区检测、跨仓库)→ CRG,这条流水线上它样样齐备。</li>
+</ul>
+<p>那,两个都装?上一版这里写的是"数据目录互不冲突,可以同时装"——技术上没错,但对 LLM 来说是个坏建议,值得把代价摊开算一遍:</p>
+<ol>
+<li><strong>工具面就是常驻上下文。</strong> MCP 的工具定义挂在会话的 tools 列表里,每一轮都在场。30 个 CRG 工具加一套 CodeGraph 工具,等于让 agent 每句话开口前先背两份菜单;</li>
+<li><strong>语义重叠制造选择竞争。</strong> 同一个影响分析问题现在有两个入口(<code>get_impact_radius_tool</code> 和图遍历类工具)、两种输出形态(分数 vs 路径)。本章开头引用过的实验结论恰好在这里反噬:选项越多,agent 越平均用力,采用率反而下降——CodeGraph 砍到只剩一个工具就是为了治这个病;</li>
+<li><strong>指令打架。</strong> 两家都在 initialize 响应里注入自己的世界观(CRG:"永远先查图再 Grep";CodeGraph:"别指望指令改变 agent 行为,答案要完整到让它停手")。单看各自成立,合在一起是两套互相竞争的行为学;</li>
+<li><strong>两份索引,两种陈旧。</strong> 同一仓库两套 watcher、两套 staleness 标记。agent 从一边读到"新鲜"、另一边读到"过期"时,没有机制告诉它该信谁。</li>
+</ol>
+<p>所以现实的最优解是<strong>按时刻分配,而不是按工具堆叠</strong>:</p>
+<ul>
+<li><strong>编码会话</strong>:只挂 CodeGraph——它默认一个工具的姿态本来就是为共存优化的;</li>
+<li><strong>PR 审查</strong>:走 CRG 的 GitHub Action 形态。这是它最干净的存在方式——根本不占用任何交互会话的工具位,风险报告以评论形式出现,agent 与人都不需要实时付注意力税;</li>
+<li><strong>确实要在同一会话共存时</strong>:CRG 支持 <code>CRG_TOOLS</code> 白名单裁剪,把它缩到 <code>detect_changes</code> + <code>get_review_context</code> 两三个评审专属工具,与 CodeGraph 的检索职责零交集,并在项目指令里明文分工——即便如此,也只是"可忍受"而非"推荐"。</li>
+</ul>
+<p>一句话:<strong>对 LLM 而言,"能装"和"该装"之间隔着整个注意力经济学。</strong> 工具数量的每一次增加都是在向所有其他工具借注意力,而这笔债是按轮计息的。</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

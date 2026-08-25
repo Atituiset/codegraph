@@ -1,0 +1,365 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>一个玩具仓库的六站解剖 - CodeGraph 源码导读</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph/edit/main/docs/book/src/empiria.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="实证一张图是怎么长出来的"><a class="header" href="#实证一张图是怎么长出来的">实证:一张图是怎么长出来的</a></h1>
+<p>前面几章讲的是机制;这一章做实验。我们在 <code>/tmp/opencode/taskflow</code> 造了一个 3 文件的 TypeScript 微型项目——刻意埋进三类"考点":观察者模式(考合成边)、Express 路由(考框架提取)、类继承(考引用解析)——然后用本仓构建出的 CLI 真实索引它,直接打开 SQLite 检查每一个中间产物。所有输出都是原样摘录。</p>
+<h2 id="样本与索引"><a class="header" href="#样本与索引">样本与索引</a></h2>
+<pre><code class="language-ts">// src/audit.ts(节选)
+class TaskRepository {
+  private listeners = new Set&lt;() =&gt; void&gt;();
+  onChange(cb: () =&gt; void): void { this.listeners.add(cb); }
+  private notifyChange(): void {
+    for (const cb of this.listeners) cb();
+  }
+  complete(id: string): Task | null { /* ... */ this.notifyChange(); }
+}
+export const taskRepo = new TaskRepository();
+export function logCompletion(): void { console.log('a task was completed'); }
+export function completeTask(id: string): Task | null { return taskRepo.complete(id); }
+</code></pre>
+<pre><code class="language-bash">$ codegraph init .
+◆  Indexed 3 files
+●  19 nodes, 29 edges in 480ms
+</code></pre>
+<p>480 毫秒里发生了什么?按架构章的流水线逐段对账。</p>
+<h2 id="第一站nodes-表kind-判定的现场"><a class="header" href="#第一站nodes-表kind-判定的现场">第一站:nodes 表——kind 判定的现场</a></h2>
+<pre><code class="language-sql">SELECT kind,name,start_line FROM nodes ORDER BY kind,name;
+</code></pre>
+<pre><code>class      TaskRepository        5
+constant   app                   5      ← server.ts 里的 express() 调用结果
+constant   taskRepo             27
+file       audit.ts / repository.ts / server.ts
+function   completeTask         29
+import     ./audit  ./repository ×2  express
+interface  Task                  1
+method     addChangeListener     8      ← TaskRepository::addChangeListener
+method     notifyChange         12
+method     complete             16
+property   listeners             6      ← TaskRepository::listeners
+property   tasks                24
+route      GET /health          16      ← src/server.ts::GET:/health
+route      GET /tasks/:id/complete  7
+</code></pre>
+<p>三个值得停留的细节:</p>
+<p><strong><code>onChange</code> 为什么是 method 而 <code>listeners</code> 是 property?</strong> 两者在 TS AST 里都是 <code>public_field_definition</code>/<code>method_definition</code> 家族的节点。<code>onChange</code> 有箭头函数体之外还有方法签名;真正的分野发生在 #808 引入的 <code>classifyTsClassMember</code>:值为 callable 的类成员判为 method,否则 property。<code>private tasks = new Map(...)</code> 的值是 <code>new</code> 表达式而非函数,所以落为 property。</p>
+<p><strong>route 节点从哪来?</strong> tree-sitter 对 <code>app.get('/tasks/:id/complete', ...)</code> 只会看到一个 call_expression。是 Express 框架提取器(<code>resolution/frameworks/express.ts</code>)用正则匹配路由头、平衡括号扫描切出 handler、然后创建了这两个 <code>kind:'route'</code> 节点,qualified_name 形如 <code>src/server.ts::GET:/health</code>。注意 route 节点的 line(16 和 7)精确对应路由声明行。</p>
+<p><strong>import 节点是符号不是语句。</strong> <code>./repository</code> 出现两次是因为 audit.ts 和 server.ts 各 import 了它一次——每个 import 声明产生自己的节点,文件级的依赖关系由后面的 imports 边表达。</p>
+<h2 id="第二站edges-表三种-provenance-的同框"><a class="header" href="#第二站edges-表三种-provenance-的同框">第二站:edges 表——三种 provenance 的同框</a></h2>
+<pre><code>provenance    kind          edge
+tree-sitter   calls         complete -&gt; notifyChange
+tree-sitter   calls         completeTask -&gt; complete
+tree-sitter   calls         server.ts -&gt; completeTask
+tree-sitter   calls         GET /tasks/:id/complete -&gt; completeTask   ★
+tree-sitter   contains      TaskRepository -&gt; onChange/notifyChange/complete/listeners/tasks
+tree-sitter   imports       server.ts -&gt; ./audit  ./repository  completeTask  taskRepo ...
+tree-sitter   instantiates  audit.ts -&gt; TaskRepository               ← `new TaskRepository()`
+tree-sitter   references    completeTask -&gt; taskRepo  complete -&gt; Task ...
+</code></pre>
+<p>★ 那条边值得单独解释:route 节点到 <code>completeTask</code> 的 calls 边<strong>不是</strong> tree-sitter 提取的——它是框架提取器从内联箭头 handler 的 body 里提出调用名后,作为普通 UnresolvedReference 进入解析管线、再经 import 解析(<code>server.ts</code> 第 2 行 import 了 <code>completeTask</code>)绑定成功的。框架层和通用管线在这里完成了一次接力。</p>
+<h2 id="第三站一次失败的实验合成边为什么没出现"><a class="header" href="#第三站一次失败的实验合成边为什么没出现">第三站:一次失败的实验——合成边为什么没出现</a></h2>
+<p>样本第一版里,注册方法的命名是 <code>addChangeListener</code>,dispatcher 叫 <code>notifyChange</code>。索引完成后查询合成边:</p>
+<pre><code class="language-sql">SELECT ... FROM edges WHERE provenance='heuristic';
+-- 结果:0 行
+</code></pre>
+<p>图断了:<code>complete → notifyChange</code> 之后没有下一跳,agent 问"任务完成后通知谁"会得到一条断链。为什么?</p>
+<p>翻开 <code>callback-synthesizer.ts</code> 的 <code>fieldChannelEdges</code>(L179),第一步就是名字门:</p>
+<pre><code class="language-ts">const isReg  = REGISTRAR_NAME.test(m.name);    // /^(on[A-Z]|subscribe|addListener|register|watch|listen|addCallback)/
+const isDisp = DISPATCHER_NAME.test(m.name);   // /(emit|trigger|notify|dispatch|fire|publish|flush)/i
+if (!isReg &amp;&amp; !isDisp) continue;
+</code></pre>
+<p><code>notifyChange</code> 含 "notify",过 dispatcher 门;但 <code>addChangeListener</code> 不匹配 REGISTRAR_NAME 的任何约定分支(<code>addListener</code> 是,<code>addChangeListener</code> 不是)。启发式的本质在此暴露无遗:<strong>它不理解语义,只认约定</strong>。这不是 bug 而是精度护栏——如果任何 "add*" 方法都算 registrar,<code>listeners.add(cb)</code> 这种集合操作会把图炸成噪声网。</p>
+<p>把方法改名为 <code>onChange</code> 再索引,合成边出现了:</p>
+<pre><code class="language-sql">SELECT ns.name||' --&gt; '||nt.name AS e, e.metadata FROM edges e
+JOIN nodes ns ON ns.id=e.source JOIN nodes nt ON nt.id=e.target
+WHERE e.provenance='heuristic';
+</code></pre>
+<pre><code>notifyChange --&gt; logCompletion
+   synthesizedBy: callback | registeredAt: src/server.ts:5
+</code></pre>
+<p><code>src/server.ts:5</code> 正是接线行 <code>taskRepo.onChange(logCompletion)</code>。回看 <code>fieldChannelEdges</code> 的实现,这条边的诞生路径完全可复述:registrar 的 incoming <code>calls</code> 边找到调用方(server.ts 文件节点),取该行的源码,用 <code>new RegExp(`${reg.node.name}\\s*\\(\\s*(?:this\\.)?(\\w+)`)</code> 从 <code>taskRepo.onChange(logCompletion)</code> 里捕获实参名 <code>logCompletion</code>,按名查到 function 节点,与同文件同 field 的 dispatcher 配对成边。<strong>每一步都是纯机械的字符串与图操作——启发式的全部智慧都押在了命名约定上,这正是它既廉价又脆弱的地方。</strong></p>
+<h2 id="第四站unresolved_refs失败者的名单"><a class="header" href="#第四站unresolved_refs失败者的名单">第四站:unresolved_refs——失败者的名单</a></h2>
+<pre><code class="language-sql">SELECT status, reference_kind, reference_name FROM unresolved_refs;
+</code></pre>
+<pre><code>failed   instantiates  Set              ← JS builtin,黑名单其实拦了大半,漏网的停在这
+failed   calls         cb               ← 局部回调变量,静态不可知
+failed   calls         console.log log
+failed   imports       express          ← package.json 声明了依赖但我们没 npm install
+failed   calls         app.get get      ← 方法链,resolver 拆链需要类型信息
+failed   calls         res.status json  ← DOM/框架对象成员
+failed   calls         if               ← 甚至有控制流关键字被当调用捕获
+</code></pre>
+<p>这张表是"静默优于错边"的实物证据:<code>res.json</code> 大概率永远不该连向任何业务符号, park 在这里比猜一个目标正确得多。同时它也是 sync 重试机制的原料库——如果将来装上 node_modules 并重建,express 相关引用就有复活机会。</p>
+<h2 id="第五站name_segment_vocab给-fts-补的人间词汇"><a class="header" href="#第五站name_segment_vocab给-fts-补的人间词汇">第五站:name_segment_vocab——给 FTS 补的人间词汇</a></h2>
+<p>FTS5 把 <code>notifyChange</code> 当作单个 token,搜 "change" 永远命中不了它。拆词表解决了这件事:</p>
+<pre><code>segment     name
+change      addChangeListener
+change      notifyChange
+completion  logCompletion
+complete    GET /tasks/:id/complete
+get         GET /health
+</code></pre>
+<p>"change" 一词反查出两个方法——正是 agent 用自然语言提问时需要的桥梁。</p>
+<h2 id="第六站explore-的真实输出"><a class="header" href="#第六站explore-的真实输出">第六站:explore 的真实输出</a></h2>
+<p>最后让消费者登场。CLI 直驱工具层(与 MCP 同一实现):</p>
+<pre><code class="language-bash">$ codegraph explore "task complete notifyChange logCompletion render"
+</code></pre>
+<pre><code>**Flow (call path among the symbols you queried)**
+
+1. complete (src/audit.ts:16)
+   ↓ calls
+2. notifyChange (src/audit.ts:12)
+   ↓ dynamic: callback via `onChange` @src/server.ts:5
+3. logCompletion (src/audit.ts:29)
+
+&gt; Full source for these symbols is below...
+
+**Blast radius — what depends on these (update/verify before editing)**
+
+- `completeTask` — 2 callers in `src/server.ts`; no tests found within 3 caller hops
+- `logCompletion` — 2 callers in `src/audit.ts`, `src/server.ts`; ...
+
+**Source Code**
+&gt; The code below is the **verbatim, current on-disk source** ... Treat each block
+&gt; as a Read you have already performed: do not Read a file shown here.
+</code></pre>
+<p>逐段解读这个输出的设计意图:</p>
+<ol>
+<li><strong>Flow 区段打头</strong>,因为它是查询的直接答案。第 2→3 跳标注 <code>dynamic: callback via \</code>onChange` @src/server.ts:5`——上一站的合成边在此兑现:agent 不仅知道 notifyChange 会调 logCompletion,还拿到了验证用的接线位置,不需要任何 Grep;</li>
+<li><strong>Blast radius 其次</strong>:编辑这些符号前该检查什么。"no tests found within 3 caller hops" 是诚实的能力边界声明;</li>
+<li><strong>源码最后</strong>,且带着那句关键指令:"Treat each block as a Read you have already performed"。这句话是说给 agent 听的——它把"读过了"的状态直接注入 agent 的行为模型,阻止后续冗余 Read。整份输出没有一句"请使用 xx 工具继续查",因为指令章的教训是:<strong>别教育 agent,把答案做到它无法拒绝</strong>。</li>
+</ol>
+<h2 id="实验结论"><a class="header" href="#实验结论">实验结论</a></h2>
+<p>一个 3 文件、34 条边的玩具项目,走完了全部六站,每一站都验证了前文的一个论断:kind 判定靠 hook(#808)、route 来自框架层、合成边靠命名约定且失败时静默、失败引用 park 待复、段词表桥接自然语言、explore 输出为 agent 的停止条件而设计。真实仓库只是把这些数字放大三四个数量级,机制一字不变。</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="tree-sitter.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="gs-data-model.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="tree-sitter.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="gs-data-model.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

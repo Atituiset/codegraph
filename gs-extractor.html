@@ -1,0 +1,293 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>提取器解剖：AST 如何变成图 - CodeGraph 源码导读</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph/edit/main/docs/book/src/gs-extractor.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="提取器一行代码怎么变成图上的点"><a class="header" href="#提取器一行代码怎么变成图上的点">提取器:一行代码怎么变成图上的点</a></h1>
+<p>这一章跟踪一个函数的一生。主角还是实证篇那位:</p>
+<pre><code class="language-ts">export function completeTask(id: string): Task | null {
+  const result = taskRepo.complete(id);
+  return result;
+}
+</code></pre>
+<p>索引结束后,图上多了什么?一个 <code>function</code> 节点 <code>completeTask</code>,一条 <code>completeTask → complete</code> 的 calls 边,一条指向 <code>taskRepo</code> 的 references 边。本章就回答:<strong>这中间发生了什么。</strong></p>
+<h2 id="第一步代码变成树"><a class="header" href="#第一步代码变成树">第一步:代码变成树</a></h2>
+<p>tree-sitter 先把源码切成语法树。对第一行,大致是:</p>
+<pre><code>export_statement                    ← export 关键字在这层!
+└── function_declaration
+    ├── name: "completeTask"        ← name 字段直接定位名字
+    ├── parameters: (id: string)
+    └── body: statement_block
+        └── return_statement ...
+</code></pre>
+<p>两个对后文至关重要的观察:<strong>其一</strong>,每个标识符挂在有名字的字段上(<code>name:</code>),提取器不需要写正则去猜;<strong>其二</strong>,<code>export</code> 在外面包了一层——这个"包装"稍后会坑我们一次。</p>
+<h2 id="第二步认出这是个函数"><a class="header" href="#第二步认出这是个函数">第二步:认出"这是个函数"</a></h2>
+<p>CodeGraph 不为每种语言写解析器,而是每语言交一张<strong>配置表</strong>(TypeScript 的在 <code>languages/typescript.ts</code>,全文仅 156 行):</p>
+<pre><code class="language-ts">functionTypes: ['function_declaration', 'arrow_function', 'function_expression'],
+classTypes:    ['class_declaration'],
+methodTypes:   ['method_definition', 'public_field_definition'],
+callTypes:     ['call_expression'],
+nameField: 'name',  bodyField: 'body',
+</code></pre>
+<p>然后一个 6790 行的通用 walker(<code>tree-sitter.ts</code>)拿着这棵树逐节点问配置表:"你的 functionTypes 认识 <code>function_declaration</code> 吗?"认识,于是调用 <code>extractFunction</code>:取 name 字段、生成 id、压入结果列表。</p>
+<p>为什么不用 tree-sitter 官方更快的 Query(.scm)模式?因为 29 种语言要共享同一套后处理(docstring 提取、qualified_name 拼接、contains 边自动生成)——一个 walker 让这些逻辑只写一次,新语言的成本从"重写一遍"降为"填一张表"。速度损失换来的是覆盖广度,这笔账在静态分析工具里通常这么算。</p>
+<h3 id="一个真实的坑class-字段算方法还是属性"><a class="header" href="#一个真实的坑class-字段算方法还是属性">一个真实的坑:class 字段算方法还是属性?</a></h3>
+<p>看这两个类成员:</p>
+<pre><code class="language-ts">onChange(cb) { this.listeners.add(cb); }   // 明明是个函数
+private tasks = new Map();                 // 明明不是
+</code></pre>
+<p>麻烦在于 TS 语法树把<strong>两者</strong>都标成 <code>public_field_definition</code>——语法层面它们都是"字段初始化",分不出语义。早期版本一律提为 method,后果是类的形状全错、按类型过滤全部失效(事故 #808)。现在的解法是一个裁决 hook:只有初始化值是函数(箭头函数、或包在 HOF 里如 <code>onScroll = throttle(...)</code>)才判 method。这就是"配置表 + walker"模式的日常:通用逻辑管流程,<strong>语言的坑用 hook 填</strong>。</p>
+<h2 id="第三步记下这里有个调用只记名字"><a class="header" href="#第三步记下这里有个调用只记名字">第三步:记下"这里有个调用"——只记名字</a></h2>
+<p>walker 走到 <code>taskRepo.complete(id)</code> 这个 call_expression 时,发生了一件初看很奇怪的事:它<strong>不查任何东西</strong>,只是往清单里塞一张纸条:</p>
+<pre><code class="language-ts">{ fromNodeId: 'func:abc123',      // 谁在调
+  referenceName: 'taskRepo.complete',  // 名字而已!
+  referenceKind: 'calls',
+  line: 34 }
+</code></pre>
+<p>没有 target。类比:<strong>快递单上只写了收件人姓名,没写地址。</strong></p>
+<p>为什么不顺手查清?因为提取跑在 8 个并行 worker 里,此刻别的文件可能还没入库——worker 根本无从知道 <code>complete</code> 定义在哪。强行查就得加锁串行,并行白做了。于是设计反转:<strong>先收集所有纸条,等全部文件入库后,由专门的"分拣中心"(下一章的解析阶段)统一配送。</strong> 这就是贯穿本书的"两阶段"结构的第一半。</p>
+<h2 id="特例博物馆三件展品"><a class="header" href="#特例博物馆三件展品">特例博物馆:三件展品</a></h2>
+<p>真实语言的调用形态千奇百怪,walker 里塞了一个约 850 行的特例区。挑三件感受一下尺度:</p>
+<p><strong>Erlang 的 spawn</strong>:<code>spawn(Mod, Fun, Args)</code> 的真正被调方藏在参数里,不在调用位置。walker 维护一张 spawn 家族名单,命中就去参数里搜 (模块名, 函数名) 对,把它提升为边——否则所有 Erlang 进程的行为对图隐形。</p>
+<p><strong>字面量接收者不发边</strong>:<code>", ".join(parts)</code> 的接收者是字符串字面量——直接放弃,什么都不记。注释只有六个字:"静默优于错边"。这是全书出现频率最高的原则:下游 agent 会沿着错边走向无关代码然后自信地胡说,断链顶多让它去 Read。</p>
+<p><strong>函数作为值</strong>:<code>btn.on('click', this.handleClick)</code> 里 handleClick 没有括号,长得不像调用。专门的捕获层认出这种形态发纸条,但加了严格门控:名字必须匹配本文件定义或本文件 import 才放行——否则 C++ 里满地的 <code>begin()/end()</code> 会变成几千条假回调边。</p>
+<h2 id="最后一步并行的计算串行的提交"><a class="header" href="#最后一步并行的计算串行的提交">最后一步:并行的计算,串行的提交</a></h2>
+<p>8 个 worker 各自吐结果,谁先完成看 CPU 心情——但落库顺序<strong>必须按文件序</strong>。为什么如此较真?回忆数据模型章:同名引用最终绑定到"插入序最先"的候选。如果提交顺序随机,同一个仓库建两次索引会得到两张不同的图,增量 sync 和全量重建的结果也会漂移(实测差 4.3% 的边)。</p>
+<p>所以调度器维护一个游标:结果乱序到达先缓冲,轮到哪个文件才提交哪个。<strong>并行是性能手段,确定性是正确性前提,后者永远赢。</strong></p>
+<h2 id="带走三句话"><a class="header" href="#带走三句话">带走三句话</a></h2>
+<ol>
+<li>配置表 + 单一 walker:新语言 = 填表,语言的坑 = hook;</li>
+<li>调用在提取期只是纸条(名字+行号),目标留到第二阶段——这是并行的代价,也是两阶段结构的由来;</li>
+<li>宁可断链不可错边:字面量接收者、歧义回调,一律静默放弃。</li>
+</ol>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="gs-data-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="gs-storage.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="gs-data-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="gs-storage.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

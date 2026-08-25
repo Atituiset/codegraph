@@ -1,0 +1,279 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>性能工程：watchdog、WAL 与内存纪律 - CodeGraph 源码导读</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph/edit/main/docs/book/src/adv-performance.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="性能工程watchdogwal-与内存纪律"><a class="header" href="#性能工程watchdogwal-与内存纪律">性能工程：watchdog、WAL 与内存纪律</a></h1>
+<blockquote>
+<p><strong>本章要解决的问题</strong>:前面各章的性能手段(批量窗口、worker 池、内核加速)散落各处,但它们都服从同一条军规:<strong>主线程任何停顿不得超过 60 秒</strong>——因为有一个子进程在数着心跳,超时会直接 SIGKILL 你。本章把散落的机制收拢,看这条军规如何塑造了整个代码库的异步形状,以及当两个正确目标打架时(快 vs 活着)谁赢。</p>
+</blockquote>
+<p>最后一章把散落各章的性能机制收拢成一张图。这个仓库的性能工程有一个总纲，先立在此处：</p>
+<blockquote>
+<p><strong>任何主线程停顿不得超过 60 秒</strong>（#850 liveness watchdog 的硬约束）。所有异步代码的形状——逐语句 yield、离线程化、双窗口超时——都是这条约束的推论。</p>
+</blockquote>
+<h2 id="心跳的三种织法"><a class="header" href="#心跳的三种织法">心跳的三种织法</a></h2>
+<p>"别让事件循环饿死"说起来一句话，做起来有三种手法：</p>
+<p><strong>合作式 yield。</strong> 长循环（引用解析、合成 pass、索引重建）周期性调用 <code>createYielder()</code> 产出的 <code>maybeYield()</code>，让出事件循环让 timer 和 I/O 回调得以执行。endBulkEdgeLoad 重建索引时甚至给每条 CREATE INDEX 之间插 <code>setImmediate</code>——单条重建就是 ~20s 的全表扫描，三条连跑就撞线。</p>
+<p><strong>离线程化。</strong> 不能切片的工作整个搬走：WAL checkpoint、PRAGMA optimize 用 eval:true 的内联 Worker 源码在独立连接上执行；查询走 worker 池；解析、存储各有专职 worker。主线程只保留协调职责。</p>
+<p><strong>进度感知的宽限。</strong> 心跳静默不一定是卡死，可能是慢盘上的合法长语句。liveness-watchdog 的 progressPaths 在超时时检查 DB/WAL 的 size/mtime 快照：前进了就宽限（上限 10×timeout=10 分钟）。"区分慢和死"是这个设计最聪明的一步。</p>
+<h2 id="超时的诚实化"><a class="header" href="#超时的诚实化">超时的诚实化</a></h2>
+<p>与心跳配套的是一套"假超时"防护。朴素实现里，worker 超时就杀——但 parse-pool 的注释记录了一个反例：主线程同步执行 SQLite store 会推迟 timer phase 的处理，worker 的结果明明已经到了却"迟到"，朴素超时把健康的 worker 杀了。修正后的语义是：base timer 到期<strong>只标记</strong> <code>timerExpired</code> 并继续接受迟到结果（worker 自报 parseMs 用于事后归因），3 倍硬窗口之后才真杀。per-parse 预算还随文件大小缩放：<code>min(base + len/100KB × 10s, max(base,20s))</code>——#1555 里一个数据头文件曾吃掉 4.5 分钟才被硬杀。</p>
+<h2 id="wal-截流阀一个完整的状态机样本"><a class="header" href="#wal-截流阀一个完整的状态机样本">WAL 截流阀：一个完整的状态机样本</a></h2>
+<p>存储章埋的伏笔在这里兑现。<code>wal-valve.ts</code> 解决的问题链值得完整复述一遍：</p>
+<p>默认 <code>wal_autocheckpoint=1000</code> 页在批量索引期间反复把热 B-tree/FTS 页重写进主库文件——实测占全部磁盘 I/O 的 <strong>95%</strong>，HDD 上 45 秒的任务变 19 分钟。所以 indexAll 关闭自动 checkpoint，写入变成纯顺序 WAL 追加。但无限推迟是另一种死法：WAL 每 COMMIT 复制热页，3.3k 文件的索引曾涨出 5.9GB 的 WAL，第一次读取要 &gt;60 秒——健康索引被自己的 watchdog 击毙。</p>
+<p>Valve 的关键洞察是一个反直觉的事实：<strong>WAL 文件的尺寸永不缩小</strong>。完整回填后 writer 下次 commit 从顶部循环覆写，文件大小不再反映积压量。所以 valve 维护 <code>sizeAtLastFullBackfill</code> 基线（只在 checkpoint 报告 busy===0 且 log===checkpointed 时刷新），按<strong>超出基线的增长量</strong>决策：</p>
+<ul>
+<li>soft 线（默认 clamp(dbSize/4, 256MB, 2GB)）：后台发起离线程 PASSIVE 回填；</li>
+<li>hard 线（2×soft）或裸文件尺寸超 fileCap（4×soft）：暂停 writer，parked barrier 下强制整段回填直到一次完整回填报告，此时无 reader 才敢 TRUNCATE 切小文件；</li>
+<li><strong>futility latch</strong>：连续两次因 reader 钉住而放弃 ⇒ 60s 内禁用暂停机制，退化回旧行为而不是每次越界烧 20 个线程——这正是某次 OOM（exit 137）的事故现场教训；</li>
+<li><strong>铁律：对活跃 writer 绝不 TRUNCATE</strong>——truncate checkpoint 会赢锁竞争然后阻塞 writer 整个回填时长，超过 5s busy_timeout 直接令索引报 "database is locked" 失败。</li>
+</ul>
+<p>一段 290 行的代码里塞进了背压、基线、熔断、屏障四种模式，而且每一种都能指回一个具体事故。</p>
+<h2 id="内存纪律"><a class="header" href="#内存纪律">内存纪律</a></h2>
+<p>WASM 与原生堆的内存问题在本仓有一套组合拳：</p>
+<ul>
+<li>parser 每 5000 次解析重建（堆碎片化）、池 worker 每 250 次 recycle；</li>
+<li><code>tree.delete()</code> 放 finally——树的原生内存对 GC 不可见；</li>
+<li>OOM 即崩溃即换血（worker process.exit(1)，池顶替新进程）；</li>
+<li>resolver 缓存全部 LRU 有界（max 1000）+ generation tag（依赖中的边在增长时缓存必须失效）；</li>
+<li>内核路径干脆不让 per-node 对象存在（kernelBuffers 直通 store 边界）;</li>
+<li>长命 reader 会钉住 WAL checkpoint 进度（实测 deletes 从 42.6s 恶化到 118.8s），所以池 worker 在空闲边界关开连接，QueryBuilder 只清语句缓存保住上层 warm cache。</li>
+</ul>
+<h2 id="大库上的两个极端手段"><a class="header" href="#大库上的两个极端手段">大库上的两个极端手段</a></h2>
+<p>最后两招属于"常规手段失效后"的范畴：</p>
+<p><strong>O(1) 重建</strong>。中毒索引（#1065：160 万节点、多 GB WAL）上，逐行 DELETE 会触发 FTS delete-trigger 风暴，开索引之前就把 watchdog 拖死。<code>CodeGraph.recreate</code> 直接 unlink 数据库三件套再初始化——删除一个文件的复杂度从 O(nodes) 变成 O(1)。</p>
+<p><strong>reader rebind</strong>。池 worker 的读连接定期关开（rebind，db/queries.ts:332）释放对 checkpoint 的钉扎，代价只是下次使用时重新 prepare 语句。性能账算得非常细：warm cache 保住、语句缓存重编，净收益为正。</p>
+<h2 id="收束性能与正确性的同构"><a class="header" href="#收束性能与正确性的同构">收束：性能与正确性的同构</a></h2>
+<p>回顾全书，会发现本仓的性能工作与正确性工作遵循同一个元模式：<strong>每个机制都锚定在一个可复现的事故上，每个事故都沉淀为一条带编号的不变式。</strong> #850 给出 60 秒约束，#1231 给出 WAL 基线方案，#1090 给出入队去重规则，CG-33 给出 ORDER BY……这不是巧合，而是工程文化：不允许"看起来会更好"的改动，只接受"修掉 #xxx"或"A/B 数据支持"的改动。</p>
+<p>读源码时遇到任何费解的防御性写法，先找它的 issue 编号——那通常比代码本身好懂得多。</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="adv-agent-tools.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="appendix-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="adv-agent-tools.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="appendix-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

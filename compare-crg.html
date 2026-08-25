@@ -1,0 +1,294 @@
+<!DOCTYPE HTML>
+<html lang="zh" class="rust sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>对比：code-review-graph 交叉分析 - CodeGraph 源码导读</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="从 tree-sitter 到 MCP:CodeGraph 的架构、源码与设计取舍">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "rust";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('rust')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">CodeGraph 源码导读</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/colbymchenry/codegraph/edit/main/docs/book/src/compare-crg.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="对比code-review-graph-交叉分析"><a class="header" href="#对比code-review-graph-交叉分析">对比:code-review-graph 交叉分析</a></h1>
+<p><code>~/Projects/code-review-graph</code>(下称 <strong>CRG</strong>,Python)和本仓(<strong>CodeGraph</strong>,TypeScript)是什么关系?一句话:<strong>同一家餐厅的两种经营模式</strong>。后厨几乎一样——都用 tree-sitter 把代码切成语法树、都存进 SQLite、都在本地跑、都通过 MCP 端菜给 AI agent。但一家做的是"帮厨师边炒边查菜谱"(CodeGraph,服务<em>写代码</em>的时刻),另一家做的是"菜品出厂前的质检报告"(CRG,服务<em>审代码</em>的时刻)。</p>
+<p>这一章不罗列功能表。我们挑四个具体问题,看两家餐厅各自怎么上这道菜——差异自然就浮出来了。</p>
+<h2 id="问题一我改了这个函数会炸到谁"><a class="header" href="#问题一我改了这个函数会炸到谁">问题一:"我改了这个函数,会炸到谁?"</a></h2>
+<p>这是影响分析(impact analysis),两边都有的功能,但算法形状完全不同。</p>
+<p>CodeGraph 的答案像<strong>顺着水管倒着摸</strong>:从函数节点出发,沿着"谁调用了我"的边一层层往外爬(BFS),爬到哪算哪。它的实现(<code>traverseBFS</code>)里最费心思的是防重复:同一条边可能被两端各遇见一次,要按 <code>source|target|kind|line|col</code> 五元组去重;一个热门函数有一百个调用者时,邻居要一次性批量取回而不是查一百次库。</p>
+<p>CRG 的答案像<strong>给水管的每段标了漏水量</strong>:它不数跳数,而是给每种边定权重(CALLS 边 1.0 分、INHERITS 继承边 0.9、TESTED_BY 0.7…),每往外爬一跳分数乘 0.6 衰减,最后给你一个<strong>总分</strong>。而且它默认不用内存图库(networkx 只是备胎),而是把整个 BFS 写成 SQL 在临时表里迭代——图再大也不占内存。</p>
+<p>同一个问题,两种输出形态:<strong>路径列表</strong>(哪些文件、哪些行)vs <strong>风险分数</strong>(0 到 1 的一个数)。为什么?因为下一个消费者不同——CodeGraph 的分数要喂给 agent 的眼睛(它要看具体位置才能去验证),CRG 的分数要喂给 CI 门禁(<code>fail-on-risk</code>,超过 0.70 直接让 PR 不过)。<strong>输出跟着消费者走,这是一切差异的总纲。</strong></p>
+<h2 id="问题二这个按钮点击之后到底调用了什么"><a class="header" href="#问题二这个按钮点击之后到底调用了什么">问题二:"这个按钮点击之后到底调用了什么?"</a></h2>
+<p>这是全书反复出现的动态分发问题,也是最能看出设计品味的地方。看这段真实的代码:</p>
+<pre><code class="language-ts">class TaskRepository {
+  onChange(cb) { this.listeners.add(cb); }        // 注册:把回调存起来
+  notifyChange() { for (cb of this.listeners) cb(); }  // 触发:挨个调用
+}
+taskRepo.onChange(logCompletion);   // 接线:在这里发生!
+</code></pre>
+<p><code>notifyChange()</code> 调用 <code>logCompletion</code> 这件事,<strong>语法树上根本不存在</strong>——AST 只能看到"遍历集合并调用元素"。静态解析到这里必然断链。两家怎么补?</p>
+<p><strong>CodeGraph 的办法:事后扫描 + 记录案发现场。</strong> 建完图后,36 个"合成器"逐个扫图,认名字:<code>onChange</code> 匹配 registrar 约定(以 on/addListener/subscribe 开头),<code>notifyChange</code> 匹配 dispatcher 约定(含 notify/emit/fire),然后去注册行的源码里正则捕获实参名 <code>logCompletion</code>,凭空造一条边:</p>
+<pre><code>notifyChange ──calls──▶ logCompletion
+   标注:synthesizedBy=callback, registeredAt=src/server.ts:5
+</code></pre>
+<p>精髓在 <code>registeredAt</code> 这个标注——它记下了"这条边是在第 5 行接上的"。当 agent 半信半疑想验证时,直接看第 5 行就行,不用再去 Grep 全仓库找证据。(本书实证篇做过完整实验:方法名改成 <code>addChangeListener</code> 这种不在约定里的名字,合成器会<strong>静默拒绝工作</strong>——宁可断链不可造假边。)</p>
+<p><strong>CRG 的办法:给事件本身发身份证。</strong> 它不是在两个函数之间拉线,而是造一个虚拟的中间节点:</p>
+<pre><code>publishEvent() ──▶ [Event: task_completed] ◀── onTaskCompleted()
+</code></pre>
+<p>Spring 的事件总线、Temporal 的工作流、DI 容器的注入(INJECTS 边)都是这个思路。好处是事件成了可查询的实体("谁在监听 X?"是一个模式查询);代价是你没法把它当成一条连续的调用路径念出来。</p>
+<p>一个是<strong>侦探式</strong>(还原案发过程),一个是<strong>户籍式</strong>(建立登记制度)。如果你的下游是 agent 的 trace 叙事,前者顺手;如果是架构审计报表,后者整齐。</p>
+<h2 id="问题三帮我找处理登录的代码"><a class="header" href="#问题三帮我找处理登录的代码">问题三:"帮我找处理登录的代码"</a></h2>
+<p>注意这个问题里没有出现任何标识符——没有函数名、没有类名,是纯人话。这恰好打在两家的能力盲区互补处。</p>
+<p>CodeGraph 的检索栈是 <strong>FTS5 单路做深</strong>:全文索引只认词,"处理登录的代码"拆出来的中文词在标识符世界里颗粒无收。它的补救是把检索做成四级瀑布(FTS 不中→LIKE 子串→编辑距离模糊→精确名补充),外加一张"驼峰拆词表"——把 <code>handleLoginAuth</code> 拆成 handle/login/auth 存进辅助表,这样搜 "auth" 能命中驼峰名。但前提仍是:<strong>查询里得有英文词</strong>。</p>
+<p>CRG 加了一条向量通道:可选安装 sentence-transformers,把每个符号的名字+签名+文档编码成语义向量,搜索时做相似度匹配。"处理登录的代码"在语义空间里离 <code>authenticateUser</code> 就近了很多。代价也直白:多一个几百 MB 的模型依赖,云厂商 API 还会把你的代码文本发出去(CRG 为此专门做了出口告警)。</p>
+<p>所以这里有一条清晰的互借清单:CodeGraph 缺语义搜索(它赌的是"MCP 指令能把 agent 教得会用符号名提问"),CRG 的 extras 可选依赖模式值得抄;而 CRG 的 FTS 权重偏心(name 列权重 20 压倒 docstring 的 1)这类细节,双方其实已经互相趋同。</p>
+<h2 id="问题四agent-打开门的那一刻"><a class="header" href="#问题四agent-打开门的那一刻">问题四:agent 打开门的那一刻</a></h2>
+<p>两个项目对"agent 会怎么用我"做了<strong>相反的赌注</strong>,这是全篇最深的一条裂缝。</p>
+<p>CodeGraph 的实验记录里写着一条血泪结论:往 MCP 指令里写"请先用 trace 工具"、换三种措辞、加示例——<strong>全部无效</strong>,agent 该怎么干还怎么干,墙钟时间甚至变差了。于是它走向减法:默认只暴露<strong>一个</strong>工具(<code>codegraph_explore</code>),把 flow 检索、路径构建、源码内联全部塞进这一次调用里;错误响应永远伪装成成功(实测 agent 收到两次报错就会整个会话弃用你);输出预算随仓库规模单调递增,且绝不超过 host 的内联上限——超了会被转存成文件,agent 又得读一遍,前功尽弃。</p>
+<p>CRG 走的是相反的加法:<strong>30 个工具、5 个提示模板</strong>(review_changes/debug_issue/onboard_developer…)、每个响应末尾带 <code>next_tool_suggestions</code> 字段主动推荐下一步、随包分发 7 个 Claude skills 当操作手册。最激进的一招是一个 PreToolUse hook:<strong>拦截 agent 发起的每一次 Grep/Glob/Read,在它执行前往结果里注入图的上下文</strong>——等于不等客人点菜,直接往菜里加料。</p>
+<p>哪个对?诚实地说:<strong>取决于宿主 agent 听不听话</strong>。强模型的工具选择能力好,货架式(30 个工具)反而灵活;弱模型面对一堆工具会平均用力,专家柜台式(1 个工具)才保得住采用率。CodeGraph 刻意用 Sonnet 这种"地板模型"做验证,就是赌用户手里的 agent 大多是弱的;CRG 的目标用户(跑 PR 流水线的团队)场景更固定,hook 拦截可控性更高。两条路线还没有公开的正面交锋数据。</p>
+<h2 id="数据模型5-种积木够不够"><a class="header" href="#数据模型5-种积木够不够">数据模型:5 种积木够不够?</a></h2>
+<p>前面四个问题看完了,回头看一个基础分歧,现在它好理解了。</p>
+<p>CodeGraph 有 <strong>23 种节点类型</strong>(file/class/method/route/component/union…),CRG 只有 <strong>5 种</strong>(File/Class/Function/Type/Test)。乍看 CRG 太糙,但换个问法:它的查询需要吗?它的 17 种图模式(谁调用它/谁测试它/谁监听它/谁消费它…)在 5 种积木上全能表达,而 Test 作为独立种类直接进了风险公式("测试缺口占 0.30 权重")——<strong>它不需要知道什么是 route,因为它的 17 种查询模式没有一个问得到路由</strong>。</p>
+<p>反过来,CodeGraph 没有 Test 类型,但 explore 输出里那句 "no tests found within 3 caller hops" 已经暴露了需求——只是它的解法是靠路径降权(test 目录 ×0.3)而非建类型。<strong>类型系统是查询需求的投影</strong>,这句话是读懂一切 schema 设计差异的钥匙。</p>
+<h2 id="最后工程性格"><a class="header" href="#最后工程性格">最后:工程性格</a></h2>
+<p>日常相处下来,两个仓库的性格差异比技术差异更鲜明。</p>
+<p>翻 CodeGraph 的代码,到处是这种注释:"仅靠 visited 守卫入队会让经两条平行边的目标被排队两次(#1090)"——<strong>每个防御性写法都挂着一场事故的编号</strong>,像是把 bug 报告钉在了案发现场。翻 CRG 的代码,看到的是另一种清单:"禁止 eval/exec/pickle、subprocess 一律 list 参数、所有返回给 MCP 的名字必须过 <code>_sanitize_name</code> 剥控制字符(256 字符上限,防 prompt 注入)"——<strong>它防御的不是自己的历史失误,而是送进渲染管道的不可信输入</strong>(review 场景天生要吃别人的 diff)。</p>
+<p>一个向后看(每行代码都有来历),一个向外看(每个入口都有门禁)。遥测的选择也是同构的:CodeGraph 做 opt-in 遥测研究用户怎么用产品;CRG 一行遥测都没有,唯一的网络出口是用户显式配置的 embedding 服务。两种性格没有高下,但决定了两个项目各自会在哪里摔倒、在哪里长出铠甲。</p>
+<h2 id="选型速断以及都装的真实代价"><a class="header" href="#选型速断以及都装的真实代价">选型速断——以及"都装"的真实代价</a></h2>
+<ul>
+<li>你要<strong>边写代码边问结构问题</strong>(callers、trace、impact,agent 在循环里高频调用)→ CodeGraph,它是为这个循环调的音;</li>
+<li>你要<strong>审 PR、管风险、留档架构</strong>(CI 门禁、PR 评论、wiki、社区检测、跨仓库)→ CRG,这条流水线上它样样齐备。</li>
+</ul>
+<p>那,两个都装?上一版这里写的是"数据目录互不冲突,可以同时装"——技术上没错,但对 LLM 来说是个坏建议,值得把代价摊开算一遍:</p>
+<ol>
+<li><strong>工具面就是常驻上下文。</strong> MCP 的工具定义挂在会话的 tools 列表里,每一轮都在场。30 个 CRG 工具加一套 CodeGraph 工具,等于让 agent 每句话开口前先背两份菜单;</li>
+<li><strong>语义重叠制造选择竞争。</strong> 同一个影响分析问题现在有两个入口(<code>get_impact_radius_tool</code> 和图遍历类工具)、两种输出形态(分数 vs 路径)。本章开头引用过的实验结论恰好在这里反噬:选项越多,agent 越平均用力,采用率反而下降——CodeGraph 砍到只剩一个工具就是为了治这个病;</li>
+<li><strong>指令打架。</strong> 两家都在 initialize 响应里注入自己的世界观(CRG:"永远先查图再 Grep";CodeGraph:"别指望指令改变 agent 行为,答案要完整到让它停手")。单看各自成立,合在一起是两套互相竞争的行为学;</li>
+<li><strong>两份索引,两种陈旧。</strong> 同一仓库两套 watcher、两套 staleness 标记。agent 从一边读到"新鲜"、另一边读到"过期"时,没有机制告诉它该信谁。</li>
+</ol>
+<p>所以现实的最优解是<strong>按时刻分配,而不是按工具堆叠</strong>:</p>
+<ul>
+<li><strong>编码会话</strong>:只挂 CodeGraph——它默认一个工具的姿态本来就是为共存优化的;</li>
+<li><strong>PR 审查</strong>:走 CRG 的 GitHub Action 形态。这是它最干净的存在方式——根本不占用任何交互会话的工具位,风险报告以评论形式出现,agent 与人都不需要实时付注意力税;</li>
+<li><strong>确实要在同一会话共存时</strong>:CRG 支持 <code>CRG_TOOLS</code> 白名单裁剪,把它缩到 <code>detect_changes</code> + <code>get_review_context</code> 两三个评审专属工具,与 CodeGraph 的检索职责零交集,并在项目指令里明文分工——即便如此,也只是"可忍受"而非"推荐"。</li>
+</ul>
+<p>一句话:<strong>对 LLM 而言,"能装"和"该装"之间隔着整个注意力经济学。</strong> 工具数量的每一次增加都是在向所有其他工具借注意力,而这笔债是按轮计息的。</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="appendix-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="appendix-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
