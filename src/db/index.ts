@@ -9,9 +9,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { SchemaVersion } from '../types';
 import { runMigrations, getCurrentVersion, CURRENT_SCHEMA_VERSION } from './migrations';
-import { getCodeGraphDir } from '../directory';
+import { getCodeGraphDir, statInode } from '../directory';
+import { toDatabaseOpenError } from './open-error';
 
 export { SqliteDatabase, SqliteBackend } from './sqlite-adapter';
+export { DatabaseOpenError } from './open-error';
+export { NodeSqliteUnavailableError } from './node-sqlite';
 
 /**
  * Apply connection-level PRAGMAs. Shared by `initialize` and `open` so the two
@@ -27,10 +30,10 @@ export { SqliteDatabase, SqliteBackend } from './sqlite-adapter';
  * on a writer, so this timeout only governs cross-process write contention
  * (e.g. the git-hook `codegraph sync` running while the MCP server writes).
  */
-function configureConnection(db: SqliteDatabase): void {
+function configureConnection(db: SqliteDatabase, readOnly = false): void {
   db.pragma('busy_timeout = 5000');      // MUST be first — see above
   db.pragma('foreign_keys = ON');
-  db.pragma('journal_mode = WAL');       // node:sqlite supports WAL on every platform
+  if (!readOnly) db.pragma('journal_mode = WAL');       // node:sqlite supports WAL on every platform
   db.pragma('synchronous = NORMAL');     // safe with WAL mode
   db.pragma('cache_size = -64000');      // 64 MB page cache
   db.pragma('temp_store = MEMORY');      // temp tables in memory
@@ -42,6 +45,22 @@ function configureConnection(db: SqliteDatabase): void {
   // the file back down. Killed-process leftovers are handled separately by
   // healOversizedWal() at open. (#1431)
   db.pragma(`journal_size_limit = ${WAL_HEAL_THRESHOLD_BYTES}`);
+}
+
+/**
+ * Run the rest of an open on the connection `db`. Its first statements read
+ * the file, so a database SQLite cannot use (locked, damaged, not a database,
+ * an I/O error) fails here as well as when the connection is made. Such a
+ * failure names SQLite's code and the path ({@link DatabaseOpenError}), and
+ * leaves no connection open.
+ */
+function withOpenFailures<T>(db: SqliteDatabase, dbPath: string, finish: () => T): T {
+  try {
+    return finish();
+  } catch (err) {
+    try { db.close(); } catch { /* the open's failure is the one to report */ }
+    throw toDatabaseOpenError(err, dbPath);
+  }
 }
 
 /**
@@ -83,10 +102,17 @@ export class DatabaseConnection {
    */
   private openedInode: string | null;
 
-  private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend) {
+  /**
+   * Whether FTS5 is available in this Node.js build. When false, search
+   * falls back to LIKE + fuzzy matching (#1532).
+   */
+  readonly fts5Available: boolean;
+
+  private constructor(db: SqliteDatabase, dbPath: string, backend: SqliteBackend, fts5Available: boolean, readonly readOnly = false) {
     this.db = db;
     this.dbPath = dbPath;
     this.backend = backend;
+    this.fts5Available = fts5Available;
     this.openedInode = statInode(dbPath);
   }
 
@@ -100,15 +126,49 @@ export class DatabaseConnection {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Create and configure database
     const { db, backend } = createDatabase(dbPath);
+    return withOpenFailures(db, dbPath, () => DatabaseConnection.initializeOn(db, backend, dbPath));
+  }
 
+  /** The rest of {@link initialize}: configure the connection and create the schema. */
+  private static initializeOn(db: SqliteDatabase, backend: SqliteBackend, dbPath: string): DatabaseConnection {
     configureConnection(db);
 
-    // Run schema initialization
+    // Run schema initialization, splitting FTS5 from the rest so
+    // codegraph still works when Node.js was built without FTS5 (#1532).
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
-    db.exec(schema);
+
+    const FTS5_MARKER = '-- Full-text search index on node names, docstrings, and signatures';
+    const ftsIdx = schema.indexOf(FTS5_MARKER);
+    let fts5Available = true;
+
+    if (ftsIdx >= 0) {
+      const preFts = schema.slice(0, ftsIdx);
+      // FTS ends after the update trigger; required tables and indexes follow
+      // it in schema.sql and must still be created when FTS5 is unavailable.
+      const ftsSection = schema.slice(ftsIdx).match(
+        /^[\s\S]*?CREATE TRIGGER IF NOT EXISTS nodes_au\b[\s\S]*?END;/
+      )?.[0];
+      if (!ftsSection) throw new Error('schema.sql: FTS5 update trigger not found');
+      // Execute everything before FTS5 first
+      db.exec(preFts);
+      // Try FTS5; if it fails, skip it and continue with LIKE-only search
+      try {
+        db.exec(ftsSection);
+      } catch (err: any) {
+        fts5Available = false;
+        const msg = err?.message ?? String(err);
+        console.warn(
+          `[codegraph] FTS5 not available in this Node.js build (${msg}). ` +
+          `Search will fall back to LIKE + fuzzy matching. ` +
+          `For full-text search, use a Node.js build with FTS5 enabled.`
+        );
+      }
+      db.exec(schema.slice(ftsIdx + ftsSection.length));
+    } else {
+      db.exec(schema);
+    }
 
     // Record current schema version so migrations aren't re-applied on open
     const currentVersion = getCurrentVersion(db);
@@ -118,23 +178,50 @@ export class DatabaseConnection {
       ).run(CURRENT_SCHEMA_VERSION, Date.now(), 'Initial schema includes all migrations');
     }
 
-    return new DatabaseConnection(db, dbPath, backend);
+    return new DatabaseConnection(db, dbPath, backend, fts5Available);
   }
 
   /**
-   * Open an existing database
+   * Open an existing database.
+   *
+   * `deferIndexRecovery` leaves the secondary indexes an interrupted bulk load
+   * dropped for {@link recoverIndexesOffThread} instead of rebuilding them
+   * here. Rebuilding one scans and sorts its whole table: on a large index
+   * that is minutes of synchronous work, and on a watched event loop the
+   * liveness watchdog kills the process before the index commits, every time
+   * it starts (#1887). Reads stay correct meanwhile, only slower.
    */
-  static open(dbPath: string): DatabaseConnection {
+  static open(dbPath: string, options: { readOnly?: boolean; deferIndexRecovery?: boolean } = {}): DatabaseConnection {
     if (!fs.existsSync(dbPath)) {
       throw new Error(`Database not found: ${dbPath}`);
     }
 
-    const { db, backend } = createDatabase(dbPath);
+    const { db, backend } = createDatabase(dbPath, options);
+    return withOpenFailures(db, dbPath, () => DatabaseConnection.openOn(db, backend, dbPath, options));
+  }
 
-    configureConnection(db);
+  /** The rest of {@link open}: configure the connection, then migrate and repair a writable one. */
+  private static openOn(
+    db: SqliteDatabase,
+    backend: SqliteBackend,
+    dbPath: string,
+    options: { readOnly?: boolean; deferIndexRecovery?: boolean },
+  ): DatabaseConnection {
+    configureConnection(db, options.readOnly);
+
+    // Detect FTS5 availability for search fallback (#1532)
+    let fts5Available = true;
+    try {
+      db.exec("SELECT * FROM nodes_fts LIMIT 0");
+    } catch {
+      fts5Available = false;
+    }
 
     // Check and run migrations if needed
-    const conn = new DatabaseConnection(db, dbPath, backend);
+    const conn = new DatabaseConnection(db, dbPath, backend, fts5Available, options.readOnly);
+    // A concurrent reader must leave migrations, bulk-load repair, and WAL
+    // maintenance to the writer, including when versions differ (#1963).
+    if (options.readOnly) return conn;
     const currentVersion = getCurrentVersion(db);
 
     if (currentVersion < CURRENT_SCHEMA_VERSION) {
@@ -145,7 +232,8 @@ export class DatabaseConnection {
     // beginBulkNodeLoad and endBulkNodeLoad): the FTS triggers are missing and
     // nodes_fts is stale. Rebuild + recreate so search stays in sync.
     conn.healBulkNodeLoad();
-    conn.healBulkSecondaryIndexes();
+    if (options.deferIndexRecovery) conn.deferredIndexDdls = conn.missingBulkSecondaryIndexDdls();
+    else conn.healBulkSecondaryIndexes();
 
     // Self-heal a killed session's leftover oversized WAL (#1431) — one
     // statSync when healthy, off-thread checkpoint+truncate when not.
@@ -169,6 +257,7 @@ export class DatabaseConnection {
    * row written by anyone during the window is captured by the rebuild.
    */
   beginBulkNodeLoad(): void {
+    if (!this.fts5Available) return;
     for (const t of DatabaseConnection.FTS_TRIGGER_NAMES) {
       this.db.exec(`DROP TRIGGER IF EXISTS ${t}`);
     }
@@ -181,6 +270,7 @@ export class DatabaseConnection {
    * IF NOT EXISTS).
    */
   endBulkNodeLoad(): void {
+    if (!this.fts5Available) return;
     this.db.exec(`INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')`);
     this.recreateFtsTriggers();
   }
@@ -313,6 +403,7 @@ export class DatabaseConnection {
     'idx_edges_source_kind',
     'idx_edges_target_kind',
     'idx_edges_provenance',
+    'idx_edges_synthesis_site',
   ] as const;
 
   /**
@@ -342,10 +433,11 @@ export class DatabaseConnection {
    * One yield per statement keeps every stall to a single index build, which
    * stays inside the window.
    */
-  async endBulkEdgeLoad(): Promise<void> {
+  async endBulkEdgeLoad(options: { deferSynthesisSite?: boolean } = {}): Promise<void> {
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
     for (const idx of DatabaseConnection.BULK_EDGE_INDEX_NAMES) {
+      if (options.deferSynthesisSite && idx === DatabaseConnection.SYNTHESIS_SITE_INDEX) continue;
       const m = schema.match(new RegExp(`CREATE INDEX IF NOT EXISTS ${idx}\\b[^;]*;`));
       if (!m) throw new Error(`schema.sql: edge index ${idx} not found for bulk-load recreation`);
       this.db.exec(m[0]);
@@ -353,8 +445,25 @@ export class DatabaseConnection {
     }
   }
 
+  /**
+   * The sync-only synthesis-site index (#1988), which endBulkEdgeLoad can
+   * leave for later. Its partial predicate runs json_valid over the metadata of
+   * every edge — ~1.5M rows, several seconds on vscode — while nothing before
+   * the end of an index reads it, so the resolver builds it while the pool is
+   * busy with synthesis rather than on the critical path. Idempotent.
+   */
+  createSynthesisSiteIndex(): void {
+    const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
+    const m = schema.match(new RegExp(`CREATE INDEX IF NOT EXISTS ${DatabaseConnection.SYNTHESIS_SITE_INDEX}\\b[^;]*;`));
+    if (!m) throw new Error(`schema.sql: edge index ${DatabaseConnection.SYNTHESIS_SITE_INDEX} not found`);
+    this.db.exec(m[0]);
+  }
+
+  private static readonly SYNTHESIS_SITE_INDEX = 'idx_edges_synthesis_site';
+
   /** Recreate the FTS triggers + rebuild if a bulk-load window never closed. */
   private healBulkNodeLoad(): void {
+    if (!this.fts5Available) return;
     const row = this.db
       .prepare(
         `SELECT count(*) AS c FROM sqlite_master WHERE type = 'trigger' AND name IN ('nodes_ai','nodes_ad','nodes_au')`
@@ -366,6 +475,14 @@ export class DatabaseConnection {
 
   /** Recreate every secondary index a killed bulk parse/ref/edge window may leave dropped. */
   private healBulkSecondaryIndexes(): void {
+    for (const ddl of this.missingBulkSecondaryIndexDdls()) this.db.exec(ddl);
+  }
+
+  /**
+   * The DDL that recreates every secondary index a killed bulk parse/ref/edge
+   * window may leave dropped; empty, after one count, when none is missing.
+   */
+  private missingBulkSecondaryIndexDdls(): string[] {
     const names = [...new Set<string>([
       ...DatabaseConnection.BULK_PARSE_INDEX_NAMES,
       ...DatabaseConnection.BULK_REF_INDEX_NAMES,
@@ -375,15 +492,99 @@ export class DatabaseConnection {
     const row = this.db
       .prepare(`SELECT count(*) AS c FROM sqlite_master WHERE type = 'index' AND name IN (${placeholders})`)
       .get(...names) as { c: number } | undefined;
-    if ((row?.c ?? 0) >= names.length) return;
+    if ((row?.c ?? 0) >= names.length) return [];
 
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf-8');
-    for (const idx of names) {
+    return names.map((idx) => {
       const m = schema.match(new RegExp(`CREATE INDEX IF NOT EXISTS ${idx}\\b[^;]*;`));
       if (!m) throw new Error(`schema.sql: index ${idx} not found for crash recovery`);
-      this.db.exec(m[0]);
+      return m[0];
+    });
+  }
+
+  /** Index DDL {@link open} left for {@link recoverIndexesOffThread}. */
+  private deferredIndexDdls: string[] = [];
+  private indexRecovery: Promise<void> | null = null;
+
+  /** Whether {@link open} left dropped secondary indexes for {@link recoverIndexesOffThread}. */
+  hasDeferredIndexRecovery(): boolean {
+    return this.deferredIndexDdls.length > 0;
+  }
+
+  /**
+   * Recreate the secondary indexes {@link open} deferred, on a worker thread
+   * with its own connection, so this thread's event loop, and the #850
+   * liveness watchdog's heartbeat, keep turning however long the rebuild takes
+   * (#1887). Each index commits on its own, so an interrupted recovery keeps
+   * what it finished. Not best-effort like {@link runMaintenance}: rejects when
+   * a statement fails, and the next call tries again. Single-flight; resolves
+   * at once when nothing was deferred.
+   */
+  recoverIndexesOffThread(): Promise<void> {
+    if (this.deferredIndexDdls.length === 0) return Promise.resolve();
+    this.indexRecovery ??= this.runRecoveryOffThread(this.deferredIndexDdls)
+      .then(() => { this.deferredIndexDdls = []; })
+      .finally(() => { this.indexRecovery = null; });
+    return this.indexRecovery;
+  }
+
+  private async runRecoveryOffThread(statements: string[]): Promise<void> {
+    let WorkerCtor: typeof import('node:worker_threads').Worker;
+    try {
+      WorkerCtor = (await import('node:worker_threads')).Worker;
+    } catch {
+      // No worker threads in this runtime: recover here, as open() would have.
+      for (const ddl of statements) this.db.exec(ddl);
+      return;
     }
+    // SQLite's default temp storage, not this connection's MEMORY: the sort
+    // behind a big index spills to disk instead of growing the heap. The
+    // worker collects its garbage before it ends, so it exits with no marking
+    // in flight (worker-teardown.ts), and nothing terminates it.
+    const workerSource = `
+      const { workerData, parentPort } = require('node:worker_threads');
+      let error = null;
+      try {
+        const { DatabaseSync } = require('node:sqlite');
+        const db = new DatabaseSync(workerData.dbPath);
+        try {
+          db.exec('PRAGMA busy_timeout = 30000');
+          for (const sql of workerData.statements) db.exec(sql);
+        } finally {
+          db.close();
+        }
+      } catch (e) {
+        error = String((e && e.message) || e);
+      }
+      try {
+        const v8 = require('v8');
+        v8.setFlagsFromString('--expose-gc');
+        const gc = require('vm').runInNewContext('gc');
+        v8.setFlagsFromString('--no-expose-gc');
+        gc();
+      } catch {}
+      parentPort.postMessage({ error });
+    `;
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const worker = new WorkerCtor(workerSource, { eval: true, workerData: { dbPath: this.dbPath, statements } });
+      worker.once('message', (message: { error: string | null }) => {
+        settled = true;
+        if (message.error) reject(new Error(`Could not restore the indexes of ${this.dbPath}: ${message.error}`));
+        else resolve();
+      });
+      worker.once('error', (err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      });
+      worker.once('exit', (code) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Restoring the indexes of ${this.dbPath} stopped early (worker exit ${code}).`));
+      });
+    });
   }
 
   /**
@@ -784,23 +985,6 @@ export class DatabaseConnection {
     if (this.openedInode === null) return false;
     const current = statInode(this.dbPath);
     return current !== null && current !== this.openedInode;
-  }
-}
-
-/**
- * `dev:ino` for a path, or null if it can't be stat'd or the platform doesn't
- * report a usable inode. Windows st_ino is unreliable across handle reopens, so
- * we deliberately return null there — the deleted-but-open-inode hazard this
- * guards (#925) is a POSIX file-semantics issue that doesn't arise on Windows
- * (an open file can't be unlinked).
- */
-function statInode(p: string): string | null {
-  if (process.platform === 'win32') return null;
-  try {
-    const s = fs.statSync(p);
-    return `${s.dev}:${s.ino}`;
-  } catch {
-    return null;
   }
 }
 

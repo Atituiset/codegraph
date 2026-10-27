@@ -155,6 +155,7 @@ pub struct Walker<'t> {
     file_path: &'t str,
     line_starts: Vec<usize>,
     arena: Arena,
+    node_id_allocator: ids::NodeIdAllocator,
     tables: Tables,
     stack: Vec<Scope>,
     node_ids: Vec<String>,
@@ -187,6 +188,7 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         file_path,
         line_starts: util::line_starts(source),
         arena: Arena::default(),
+        node_id_allocator: ids::NodeIdAllocator::default(),
         tables: Tables::default(),
         stack: Vec::new(),
         node_ids: Vec::new(),
@@ -297,7 +299,8 @@ impl<'t> Walker<'t> {
             return None;
         }
         let start_line = self.line_of(node);
-        let id = ids::node_id(self.file_path, kind, name, start_line);
+        let column = self.col_of(node);
+        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
 
         // buildQualifiedName (:1447-1460) — non-file stack names, `::`-joined;
         // namespacePrefix always empty (no C++ namespaces, no scala namespace).
@@ -471,6 +474,7 @@ impl<'t> Walker<'t> {
 
     /// scalaBaseTypeName (tree-sitter.ts:201-224).
     fn scala_base_type_name(&self, node: Option<Node<'t>>) -> Option<String> {
+        stack_guard!();
         let node = node?;
         match node.kind() {
             "type_identifier" | "identifier" => Some(self.text(node).to_string()),
@@ -495,6 +499,7 @@ impl<'t> Walker<'t> {
 
     /// emitScalaTypeRefs (scala.ts:27-45) — the hook's own builtin set.
     fn emit_scala_type_refs(&mut self, type_node: Node<'t>, from_row: u32) {
+        stack_guard!();
         if type_node.kind() == "type_identifier" {
             let name = self.text(type_node);
             if !name.is_empty() && !is_scala_builtin(name) {
@@ -529,6 +534,7 @@ impl<'t> Walker<'t> {
     // --- the main walk (visitNode, tree-sitter.ts:936-1303) ---------------
 
     fn visit(&mut self, node: Node<'t>) {
+        stack_guard!();
         // The visitNode hook (scala.ts:131-198) runs FIRST.
         if self.hook(node) {
             self.scan_fn_ref_subtree(node, 0);
@@ -545,8 +551,12 @@ impl<'t> Walker<'t> {
                 self.extract_method_or_function(node);
                 return; // skipChildren
             }
-            "class_definition" | "object_definition" => {
+            "class_definition" => {
                 self.extract_class(node, "class");
+                return;
+            }
+            "object_definition" => {
+                self.extract_class(node, "module");
                 return;
             }
             "trait_definition" => {
@@ -591,6 +601,7 @@ impl<'t> Walker<'t> {
 
     /// The visitNode hook (scala.ts:131-198). Returns true when consumed.
     fn hook(&mut self, node: Node<'t>) -> bool {
+        stack_guard!();
         match node.kind() {
             "val_definition" | "var_definition" => {
                 let is_val = node.kind() == "val_definition";
@@ -652,6 +663,18 @@ impl<'t> Walker<'t> {
                 if let (Some(row), Some(t)) = (created, type_node) {
                     self.emit_scala_type_refs(t, row);
                 }
+                // Walk the initializer ATTRIBUTED to the declared symbol
+                // (#693, the Go fix): the hook consumes this subtree and the
+                // dispatcher only fn-ref-scans it, so `val cb = () => target()`
+                // — and even a plain `val x = compute()` — emitted no call edge
+                // at all.
+                if let Some(row) = created {
+                    if let Some(value) = node.child_by_field_name("value") {
+                        self.stack.push(Scope { row, kind, name: name.clone() });
+                        self.visit_body(value);
+                        self.stack.pop();
+                    }
+                }
                 true
             }
             "enum_case_definitions" => {
@@ -691,6 +714,7 @@ impl<'t> Walker<'t> {
     // --- extractMethod → extractFunction routing (:1737 / :1517) ----------
 
     fn extract_method_or_function(&mut self, node: Node<'t>) {
+        stack_guard!();
         // No receiver hook, no methodsAreTopLevel: inside class-like → method,
         // else → function (the object/object_expression parent check never
         // matches scala node kinds).
@@ -735,6 +759,7 @@ impl<'t> Walker<'t> {
     // --- extractClass (:1679) — classes, objects, traits ------------------
 
     fn extract_class(&mut self, node: Node<'t>, kind: &'static str) {
+        stack_guard!();
         let resolved_body = node.child_by_field_name("body"); // template_body
         // No skipBodilessClass — bodiless mints (scala-complete).
         let name = self.extract_name(node);
@@ -765,6 +790,7 @@ impl<'t> Walker<'t> {
     // --- extractEnum (:1914) ----------------------------------------------
 
     fn extract_enum(&mut self, node: Node<'t>) {
+        stack_guard!();
         let body = match node.child_by_field_name("body") {
             Some(b) => b,
             None => return, // bodiless enum mints nothing
@@ -812,6 +838,7 @@ impl<'t> Walker<'t> {
     // --- extractImport (:3170-3236) ---------------------------------------
 
     fn extract_import(&mut self, node: Node<'t>) {
+        stack_guard!();
         let import_text = self.text(node).trim();
         // extractImport hook (scala.ts:200-211): `path` field is FIRST-MATCH-
         // WINS → the FIRST dotted segment names the import.
@@ -1133,6 +1160,7 @@ impl<'t> Walker<'t> {
     }
 
     fn type_refs_from_subtree(&mut self, node: Node<'t>, from_row: u32) {
+        stack_guard!();
         if node.kind() == "type_identifier" {
             let name = self.text(node);
             if !name.is_empty() && !is_builtin_type(name) {
@@ -1151,6 +1179,7 @@ impl<'t> Walker<'t> {
     // --- visitFunctionBody (:5129-5286) — scala rows ----------------------
 
     fn visit_body(&mut self, node: Node<'t>) {
+        stack_guard!();
         self.maybe_capture_fn_refs(node);
 
         let kind = node.kind();
@@ -1171,8 +1200,12 @@ impl<'t> Walker<'t> {
         // the inverse of kotlin). Body-local classes/objects/traits/enums DO
         // extract fully.
         match kind {
-            "class_definition" | "object_definition" => {
+            "class_definition" => {
                 self.extract_class(node, "class");
+                return;
+            }
+            "object_definition" => {
+                self.extract_class(node, "module");
                 return;
             }
             "trait_definition" => {
@@ -1266,6 +1299,7 @@ impl<'t> Walker<'t> {
     /// normalizeValue with SCALA_SPEC's unwrap (postfix_expression → first
     /// named child — eta-expansion `handler _`). No layers.
     fn normalize_fn_ref_value(&mut self, v: Node<'t>, from: u32, depth: u32) {
+        stack_guard!();
         if depth > 4 {
             return;
         }
@@ -1294,6 +1328,7 @@ impl<'t> Walker<'t> {
     }
 
     fn scan_fn_ref_subtree(&mut self, node: Node<'t>, depth: u32) {
+        stack_guard!();
         if depth > 12 {
             return;
         }

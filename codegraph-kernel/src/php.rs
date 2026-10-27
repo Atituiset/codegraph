@@ -142,6 +142,7 @@ pub struct Walker<'t> {
     file_path: &'t str,
     line_starts: Vec<usize>,
     arena: Arena,
+    node_id_allocator: ids::NodeIdAllocator,
     tables: Tables,
     stack: Vec<Scope>,
     node_ids: Vec<String>,
@@ -172,6 +173,7 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         file_path,
         line_starts: util::line_starts(source),
         arena: Arena::default(),
+        node_id_allocator: ids::NodeIdAllocator::default(),
         tables: Tables::default(),
         stack: Vec::new(),
         node_ids: Vec::new(),
@@ -316,7 +318,8 @@ impl<'t> Walker<'t> {
             return None;
         }
         let start_line = self.line_of(node);
-        let id = ids::node_id(self.file_path, kind, name, start_line);
+        let column = self.col_of(node);
+        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1; // no resolveBody for php
 
         let qualified = {
@@ -530,6 +533,7 @@ impl<'t> Walker<'t> {
     // --- the dispatcher (visitNode, PHP-relevant branches) ------------------------
 
     fn visit_node(&mut self, node: Node<'t>) {
+        stack_guard!();
         if self.try_visit_hook(node) {
             self.scan_fn_ref_subtree(node, 0);
             return;
@@ -609,10 +613,12 @@ impl<'t> Walker<'t> {
     // --- visitFunctionBody --------------------------------------------------------
 
     fn visit_function_body(&mut self, body: Node<'t>) {
+        stack_guard!();
         self.visit_for_calls_and_structure(body);
     }
 
     fn visit_for_calls_and_structure(&mut self, node: Node<'t>) {
+        stack_guard!();
         let kind = node.kind();
         self.maybe_capture_fn_refs(node);
 
@@ -671,6 +677,7 @@ impl<'t> Walker<'t> {
     // --- extractors ----------------------------------------------------------------
 
     fn extract_function(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         if name == "<anonymous>" {
             if let Some(body) = node.child_by_field_name("body") {
@@ -696,6 +703,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_method(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -715,6 +723,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_class(&mut self, node: Node<'t>, kind: &'static str) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -736,6 +745,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_interface(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -754,6 +764,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_enum(&mut self, node: Node<'t>) {
+        stack_guard!();
         let Some(body) = node.child_by_field_name("body") else { return };
         let name = self.extract_name(node);
         let extra = Extra {
@@ -1080,6 +1091,7 @@ impl<'t> Walker<'t> {
     /// nests inside `anonymous_class`, so findAnonymousClassBody finds no
     /// DIRECT child) — mirrored from the shared TS path for shape.
     fn extract_anonymous_class(&mut self, node: Node<'t>, body: Node<'t>) {
+        stack_guard!();
         let type_node = node
             .child_by_field_name("constructor")
             .or_else(|| node.child_by_field_name("type"))
@@ -1206,6 +1218,7 @@ impl<'t> Walker<'t> {
     }
 
     fn walk_php_type_position(&mut self, node: Node<'t>, from_row: u32) {
+        stack_guard!();
         match node.kind() {
             "primitive_type" => {}
             "name" => {
@@ -1249,6 +1262,7 @@ impl<'t> Walker<'t> {
     }
 
     fn normalize_fn_ref_value(&mut self, v: Node<'t>, from: u32, depth: u32) {
+        stack_guard!();
         if depth > 4 {
             return;
         }
@@ -1337,6 +1351,7 @@ impl<'t> Walker<'t> {
     }
 
     fn scan_fn_ref_subtree(&mut self, node: Node<'t>, depth: u32) {
+        stack_guard!();
         if depth > 12 {
             return;
         }

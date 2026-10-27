@@ -5,10 +5,11 @@
 
 use crate::textutil as util;
 use super::{
-    body_of, is_builtin_type, is_literal_receiver, is_react_hoc, is_variable_type,
-    is_vue_collection_name, Extra, Scope, Walker,
+    body_of, is_builtin_type, is_host_global_root, is_literal_receiver, is_object_member_function,
+    is_react_hoc, is_static_object_key, is_variable_type, is_vue_collection_name, Extra, Scope, Walker,
 };
 use crate::buffers::edge_kind_index;
+use std::collections::HashSet;
 use tree_sitter::Node;
 
 impl<'t> Walker<'t> {
@@ -20,15 +21,23 @@ impl<'t> Walker<'t> {
             .unwrap_or_else(|| self.extract_name(node));
 
         // Arrow/function-expression values: resolve the name from the parent
-        // variable_declarator (`export const useAuth = () => {}`).
+        // variable_declarator (`export const useAuth = () => {}`), or from a
+        // CommonJS export assignment (`exports.getItems = async () => {}`,
+        // #1675). Mirrors TreeSitterExtractor.extractFunction.
+        let mut common_js_export = false;
         if name_override.is_none()
             && name == "<anonymous>"
-            && matches!(node.kind(), "arrow_function" | "function_expression")
+            && matches!(node.kind(), "arrow_function" | "function_expression" | "generator_function")
         {
             if let Some(parent) = node.parent() {
                 if parent.kind() == "variable_declarator" {
                     if let Some(var_name) = parent.child_by_field_name("name") {
                         name = self.text(var_name).to_string();
+                    }
+                } else if parent.kind() == "assignment_expression" {
+                    if let Some(export_name) = self.common_js_export_name(parent, node) {
+                        name = export_name;
+                        common_js_export = true;
                     }
                 }
             }
@@ -36,7 +45,9 @@ impl<'t> Walker<'t> {
         if name == "<anonymous>" {
             // Still walk the body: module wrappers hold named inner functions
             // and calls that would otherwise be lost (#528).
-            if let Some(body) = body_of(node) {
+            let body = body_of(node);
+            self.visit_parameter_defaults(node, body);
+            if let Some(body) = body {
                 self.visit_function_body(body);
             }
             return;
@@ -46,7 +57,7 @@ impl<'t> Walker<'t> {
             docstring: crate::docstring::preceding_docstring(node, self.src),
             signature: self.signature_of(node),
             visibility: self.visibility_of(node),
-            is_exported: Some(self.is_exported(node)),
+            is_exported: Some(common_js_export || self.is_exported(node)),
             is_async: Some(self.is_async(node)),
             is_static: self.is_static(node),
             ..Extra::default()
@@ -59,10 +70,95 @@ impl<'t> Walker<'t> {
         self.extract_decorators_for(node, row);
 
         self.stack.push(Scope { row, kind: "function", name });
-        if let Some(body) = body_of(node) {
+        let body = body_of(node);
+        self.visit_parameter_defaults(node, body);
+        if let Some(body) = body {
             self.visit_function_body(body);
         }
         self.stack.pop();
+    }
+
+    /// A parameter's default value is code the function runs, each time a
+    /// call leaves that argument out (#2588). Each default, and a computed key
+    /// in a destructured parameter, is walked as the body is, with the same
+    /// scope on the stack; the names a parameter binds and its type annotation
+    /// are not. A function with no body never runs. Mirrors
+    /// TreeSitterExtractor.visitParameterDefaults.
+    fn visit_parameter_defaults(&mut self, func: Node<'t>, body: Option<Node<'t>>) {
+        let Some(body) = body else { return };
+        // A class field holds its function: `onPick = (item = first()) => {…}`.
+        let owner = if matches!(func.kind(), "public_field_definition" | "field_definition") {
+            body.parent()
+        } else {
+            Some(func)
+        };
+        if let Some(params) = owner.and_then(|o| o.child_by_field_name("parameters")) {
+            self.visit_pattern_defaults(params);
+        }
+    }
+
+    /// The defaults in a parameter list or a destructuring pattern, in source
+    /// order. Mirrors TreeSitterExtractor.visitPatternDefaults.
+    fn visit_pattern_defaults(&mut self, node: Node<'t>) {
+        stack_guard!();
+        match node.kind() {
+            "formal_parameters" | "object_pattern" | "array_pattern" | "rest_pattern" => {
+                for i in 0..node.named_child_count() {
+                    if let Some(child) = node.named_child(i) {
+                        self.visit_pattern_defaults(child);
+                    }
+                }
+            }
+            "required_parameter" | "optional_parameter" => {
+                if let Some(pattern) = node.child_by_field_name("pattern") {
+                    self.visit_pattern_defaults(pattern);
+                }
+                if let Some(value) = node.child_by_field_name("value") {
+                    self.visit_function_body(value);
+                }
+            }
+            "assignment_pattern" | "object_assignment_pattern" => {
+                if let Some(left) = node.child_by_field_name("left") {
+                    self.visit_pattern_defaults(left);
+                }
+                if let Some(right) = node.child_by_field_name("right") {
+                    self.visit_function_body(right);
+                }
+            }
+            "pair_pattern" => {
+                if let Some(key) = node.child_by_field_name("key").filter(|k| k.kind() == "computed_property_name") {
+                    self.visit_function_body(key);
+                }
+                if let Some(value) = node.child_by_field_name("value") {
+                    self.visit_pattern_defaults(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The property a CommonJS export assignment binds a function to —
+    /// `exports.NAME = <node>` / `module.exports.NAME = <node>` — or None for
+    /// any other assignment. The node must be the assignment's whole
+    /// right-hand side. Mirrors TreeSitterExtractor.commonJsExportName.
+    fn common_js_export_name(&self, assignment: Node<'t>, value: Node<'t>) -> Option<String> {
+        let right = assignment.child_by_field_name("right")?;
+        if right.start_byte() != value.start_byte() || right.end_byte() != value.end_byte() {
+            return None;
+        }
+        let left = assignment.child_by_field_name("left")?;
+        if left.kind() != "member_expression" {
+            return None;
+        }
+        let object = left.child_by_field_name("object")?;
+        let property = left.child_by_field_name("property")?;
+        if property.kind() != "property_identifier" {
+            return None;
+        }
+        if !matches!(self.text(object), "exports" | "module.exports") {
+            return None;
+        }
+        Some(self.text(property).to_string())
     }
 
     // --- reactComponentHoc / extractReactComponentNode (#841) --------------------
@@ -71,6 +167,9 @@ impl<'t> Walker<'t> {
     /// inner is the inline render function, or None for `styled.x`/`memo(Ref)`.
     /// Outer None = not a component wrapper.
     fn react_component_hoc(&self, value: Node<'t>) -> Option<Option<Node<'t>>> {
+        if self.is_typed_styled_template(value) {
+            return Some(None);
+        }
         if value.kind() != "call_expression" {
             return None;
         }
@@ -96,6 +195,35 @@ impl<'t> Walker<'t> {
         Some(inner)
     }
 
+    /// A typed styled tag, `styled.div<Props>` before a template literal, which
+    /// parses as comparisons: `(styled.div < Props) > template`. The leftmost
+    /// operand is the `styled` tag against a `<`; the rightmost is the
+    /// template_string against a `>` (`>>` when the type argument ends in its
+    /// own `<…>`). Mirrors TreeSitterExtractor.isTypedStyledTemplate.
+    fn is_typed_styled_template(&self, value: Node<'t>) -> bool {
+        if value.kind() != "binary_expression" {
+            return false;
+        }
+        let (mut tag_parent, mut tag) = (value, value.child_by_field_name("left"));
+        while let Some(t) = tag.filter(|t| t.kind() == "binary_expression") {
+            (tag_parent, tag) = (t, t.child_by_field_name("left"));
+        }
+        let (mut template_parent, mut template) = (value, value.child_by_field_name("right"));
+        while let Some(t) = template.filter(|t| t.kind() == "binary_expression") {
+            (template_parent, template) = (t, t.child_by_field_name("right"));
+        }
+        let (Some(tag), Some(template)) = (tag, template) else {
+            return false;
+        };
+        let operator = |n: Node<'t>| n.child_by_field_name("operator").map(|o| o.kind()).unwrap_or("");
+        let closing = operator(template_parent);
+        template.kind() == "template_string"
+            && operator(tag_parent) == "<"
+            && !closing.is_empty()
+            && closing.bytes().all(|b| b == b'>')
+            && util::styled_callee().is_match(self.text(tag))
+    }
+
     fn extract_react_component_node(
         &mut self,
         name: &str,
@@ -106,12 +234,133 @@ impl<'t> Walker<'t> {
         let Some(row) = self.create_node("component", name, declarator, extra) else {
             return;
         };
-        let Some(inner) = inner_fn else { return };
         self.stack.push(Scope { row, kind: "component", name: name.to_string() });
-        if let Some(body) = body_of(inner) {
-            self.visit_function_body(body);
+        match inner_fn {
+            Some(inner) => {
+                let body = body_of(inner);
+                self.visit_parameter_defaults(inner, body);
+                if let Some(body) = body {
+                    self.visit_function_body(body);
+                }
+            }
+            // Without a render function, the initializer is walked instead.
+            None => {
+                if let Some(value) = declarator.child_by_field_name("value") {
+                    self.walk_component_wrapper(value);
+                }
+            }
         }
         self.stack.pop();
+    }
+
+    /// A wrapper with no render function of its own (`styled.div\`…\``,
+    /// `styled(Base).attrs(…)<P>\`…\``, `styled(Base)(styles)`, `memo(Base)`),
+    /// walked with its component on the stack as a constant's initializer is
+    /// (#693): the template's interpolations and the `.attrs()` / options /
+    /// style-function / comparator arguments are the component's code. The
+    /// wrapper's own chain (`styled`, `styled.div`, `.attrs`, `memo`) is not
+    /// recorded, the component it wraps is left to the JSX synthesizer (it is
+    /// what this one renders), and a typed tag's type operands are not walked.
+    /// Mirrors TreeSitterExtractor.walkComponentWrapper.
+    fn walk_component_wrapper(&mut self, link: Node<'t>) {
+        stack_guard!();
+        match link.kind() {
+            "binary_expression" => {
+                // `(styled(Base) < Props) > \`…\``: the tag is the leftmost
+                // operand and the template the rightmost; between is the type.
+                let mut tag = Some(link);
+                while let Some(t) = tag.filter(|t| t.kind() == "binary_expression") {
+                    tag = t.child_by_field_name("left");
+                }
+                let mut template = Some(link);
+                while let Some(t) = template.filter(|t| t.kind() == "binary_expression") {
+                    template = t.child_by_field_name("right");
+                }
+                if let Some(tag) = tag {
+                    self.walk_component_wrapper(tag);
+                }
+                if let Some(template) = template {
+                    self.visit_function_body(template);
+                }
+            }
+            "call_expression" => {
+                let callee = link.child_by_field_name("function");
+                if let Some(c) = callee {
+                    self.walk_component_wrapper(c);
+                }
+                let Some(args) = link.child_by_field_name("arguments") else { return };
+                // A tagged template's argument is its template: the styles.
+                if args.kind() != "arguments" {
+                    self.visit_function_body(args);
+                    return;
+                }
+                // `styled(Base)`, `memo(Base)`: the first argument is the
+                // component wrapped, or a wrapper around it.
+                let callee_text = callee.map(|c| self.text(c)).unwrap_or("");
+                let root = callee_text == "styled" || is_react_hoc(callee_text);
+                let base = args
+                    .named_child(0)
+                    .filter(|f| root && matches!(f.kind(), "identifier" | "member_expression"));
+                for i in 0..args.named_child_count() {
+                    let Some(arg) = args.named_child(i) else { continue };
+                    if base.map(|b| b.start_byte() == arg.start_byte()).unwrap_or(false) {
+                        continue;
+                    }
+                    if root && i == 0 && arg.kind() == "call_expression" && self.is_component_wrapper_call(arg) {
+                        self.walk_component_wrapper(arg);
+                    } else if matches!(arg.kind(), "arrow_function" | "function_expression") {
+                        // A style or `.attrs()` function runs as the component's
+                        // code: its body is walked, the function never named.
+                        let body = body_of(arg);
+                        self.visit_parameter_defaults(arg, body);
+                        if let Some(body) = body {
+                            self.visit_function_body(body);
+                        }
+                    } else {
+                        self.visit_function_body(arg);
+                    }
+                }
+                self.capture_wrapper_argument_refs(args, base);
+            }
+            "member_expression" | "subscript_expression" => {
+                if let Some(object) = link.child_by_field_name("object") {
+                    self.walk_component_wrapper(object);
+                }
+            }
+            "non_null_expression" | "parenthesized_expression" | "instantiation_expression" => {
+                // `styled.div<{ open: boolean }>` error-recovers into a call on
+                // `non_null_expression(instantiation_expression(styled.div, …))`.
+                if let Some(inner) = link.child_by_field_name("function").or_else(|| link.named_child(0)) {
+                    self.walk_component_wrapper(inner);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A call reactComponentHoc reads as a component wrapper: `styled…(…)`,
+    /// `memo(…)`, `forwardRef(…)`. Mirrors isComponentWrapperCall.
+    fn is_component_wrapper_call(&self, call: Node<'t>) -> bool {
+        let Some(callee) = call.child_by_field_name("function") else { return false };
+        let text = self.text(callee);
+        util::styled_callee().is_match(text) || is_react_hoc(text)
+    }
+
+    /// Function-as-value candidates (#756) among a wrapper call's arguments,
+    /// attributed to the component — never the component the call wraps.
+    /// Mirrors captureWrapperArgumentRefs.
+    fn capture_wrapper_argument_refs(&mut self, args: Node<'t>, base: Option<Node<'t>>) {
+        let Some(mode) = super::fnref::dispatch(args.kind()) else { return };
+        if self.stack.is_empty() {
+            return;
+        }
+        let from = self.top_row();
+        for (cand, _mode) in super::fnref::capture(args, mode, self.src) {
+            if base.map(|b| b.start_byte() == cand.column_byte).unwrap_or(false) {
+                continue;
+            }
+            self.fn_ref_cands.push((from, cand));
+        }
     }
 
     // --- extractClass ------------------------------------------------------------
@@ -119,10 +368,15 @@ impl<'t> Walker<'t> {
     pub(super) fn extract_class(&mut self, node: Node<'t>) {
         let resolved_body = body_of(node); // skipBodilessClass unset for TS/JS
         let name = self.extract_name(node);
+        // A class expression's name is bound inside the expression alone:
+        // never exported by it, and its head is its signature, which a
+        // declaration lacks (#2499). Mirrors TreeSitterExtractor.extractClass.
+        let expression = node.kind() == "class";
         let extra = Extra {
             docstring: crate::docstring::preceding_docstring(node, self.src),
             visibility: self.visibility_of(node),
-            is_exported: Some(self.is_exported(node)),
+            is_exported: Some(!expression && self.is_exported(node)),
+            signature: if expression { resolved_body.map(|body| class_expression_head(self.src, node, body)) } else { None },
             ..Extra::default()
         };
         let Some(row) = self.create_node("class", &name, node, extra) else {
@@ -149,7 +403,9 @@ impl<'t> Walker<'t> {
             // Object-literal methods are ephemeral: walk the body only.
             if let Some(parent) = node.parent() {
                 if matches!(parent.kind(), "object" | "object_expression") {
-                    if let Some(body) = body_of(node) {
+                    let body = body_of(node);
+                    self.visit_parameter_defaults(node, body);
+                    if let Some(body) = body {
                         self.visit_function_body(body);
                     }
                     return;
@@ -176,7 +432,9 @@ impl<'t> Walker<'t> {
         self.extract_decorators_for(node, row);
 
         self.stack.push(Scope { row, kind: "method", name });
-        if let Some(body) = body_of(node) {
+        let body = body_of(node);
+        self.visit_parameter_defaults(node, body);
+        if let Some(body) = body {
             self.visit_function_body(body);
         }
         self.stack.pop();
@@ -270,8 +528,33 @@ impl<'t> Walker<'t> {
         let name = self.text(name_node).to_string();
 
         // TS/JS field definitions carry an explicit `type` field; the generic
-        // scan is for other languages (#808).
-        let type_text = node.child_by_field_name("type").map(|t| {
+        // scan is for other languages (#808). A `property_signature` (an
+        // interface member, #1638) carries a `type` field and no value, so it
+        // reads the type field too: the generic scan's exclusion list covers
+        // `identifier` but not the `property_identifier` an interface member is
+        // named with, so it would stop on the name and make the signature repeat
+        // it (`counts counts`) instead of naming the type. Mirrors
+        // extractProperty's isTsJsField.
+        let is_ts_js_field = matches!(
+            node.kind(),
+            "public_field_definition" | "field_definition" | "property_signature"
+        );
+        let type_node = if is_ts_js_field {
+            node.child_by_field_name("type")
+        } else {
+            (0..node.named_child_count()).filter_map(|i| node.named_child(i)).find(|c| {
+                !matches!(
+                    c.kind(),
+                    "modifier"
+                        | "modifiers"
+                        | "identifier"
+                        | "accessor_list"
+                        | "accessors"
+                        | "equals_value_clause"
+                )
+            })
+        };
+        let type_text = type_node.map(|t| {
             let raw = self.text(t);
             raw.strip_prefix(':').unwrap_or(raw).trim_start().to_string()
         });
@@ -293,7 +576,43 @@ impl<'t> Walker<'t> {
 
     // --- extractVariable (TS/JS branch) ------------------------------------------------
 
-    pub(super) fn extract_variable(&mut self, node: Node<'t>) {
+    /// A top-level binding exported by a LATER statement rather than at its
+    /// declaration: `export default NAME`, `export { NAME }`, `export { NAME as
+    /// default }`. The declaration's own `is_exported` (an `export_statement`
+    /// ancestor) cannot see these. One anchored regex over the file source.
+    /// Mirrors TreeSitterExtractor.isExportedLater.
+    pub(super) fn is_exported_later(&self, name: &str) -> bool {
+        if name.is_empty()
+            || !name.chars().next().map(|c| c.is_ascii_alphabetic() || c == '_' || c == '$').unwrap_or(false)
+            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        {
+            return false;
+        }
+        let n = regex::escape(name);
+        // `R` (CRLF mode): JS's multiline `^`/`$` treat `\r` as a line end as
+        // well as `\n`; `(?m)` alone sees only `\n`, and would miss `export
+        // default NAME;\r\n` on every Windows autocrlf checkout.
+        // Inside `{ … }` the name is bounded by a character that can't
+        // continue an identifier, not by `\b`, which takes a `$` for a
+        // separator. The crate has no look-around, so the bounds consume.
+        // ASCII classes, not `\w`: this crate's `\w` is Unicode, JS's is not.
+        let pattern = format!(
+            r"(?mR)^[ \t]*export\s+(?:default\s+{n}\s*;?[ \t]*$|\{{(?:[^}}]*[^0-9A-Za-z_$}}])?{n}(?:[^0-9A-Za-z_$}}][^}}]*)?\}})",
+            n = n
+        );
+        match regex::Regex::new(&pattern) {
+            Ok(re) => re.is_match(self.src),
+            Err(_) => false,
+        }
+    }
+
+    /// Returns the initializers it walked under the symbol they declare — a
+    /// constant's or a variable's (#693), a component wrapper's — whose fn-ref
+    /// candidates that walk already took for the symbol (the caller's scan of
+    /// the declaration skips them; it would take each again for the file).
+    /// Mirrors TreeSitterExtractor.extractVariable.
+    pub(super) fn extract_variable(&mut self, node: Node<'t>) -> Option<HashSet<usize>> {
+        let mut walked: Option<HashSet<usize>> = None;
         let is_const = self.is_const_decl(node);
         let kind: &'static str = if is_const { "constant" } else { "variable" };
         let docstring = crate::docstring::preceding_docstring(node, self.src);
@@ -307,7 +626,7 @@ impl<'t> Walker<'t> {
             let Some(name_node) = child.child_by_field_name("name") else { continue };
             let value = child.child_by_field_name("value");
 
-            // Destructured patterns are skipped — except RTK Query generated
+            // Destructured patterns mint no node — except RTK Query generated
             // hooks (`export const { useGetXQuery } = api`).
             if matches!(name_node.kind(), "object_pattern" | "array_pattern") {
                 if name_node.kind() == "object_pattern"
@@ -315,13 +634,18 @@ impl<'t> Walker<'t> {
                 {
                     self.extract_rtk_hook_bindings(name_node, is_exported);
                 }
+                // The initializer (and any default in the pattern) still runs:
+                // walk the declarator as a function body walks it, with the
+                // enclosing scope on the stack (#2340). Mirrors
+                // TreeSitterExtractor.extractVariable.
+                self.visit_function_body(child);
                 continue;
             }
             let name = self.text(name_node).to_string();
 
-            // Arrow/function values extract as functions, named by the declarator.
+            // Arrow/function/generator values extract as functions, named by the declarator.
             if let Some(v) = value {
-                if matches!(v.kind(), "arrow_function" | "function_expression") {
+                if matches!(v.kind(), "arrow_function" | "function_expression" | "generator_function") {
                     self.extract_function(v, None);
                     continue;
                 }
@@ -344,6 +668,9 @@ impl<'t> Walker<'t> {
                                 ..Extra::default()
                             },
                         );
+                        if inner.is_none() {
+                            walked.get_or_insert_with(HashSet::new).insert(v.id());
+                        }
                         continue;
                     }
                 }
@@ -364,6 +691,16 @@ impl<'t> Walker<'t> {
                 self.extract_variable_type_annotation(child, row);
             }
 
+            // A named object literal owns its function members, exported or
+            // not (#2300): `const api = { load() {…} }` gives `api::load`. The
+            // rest of the literal is walked under the owner (#693). Mirrors
+            // the ownedObject branch of TreeSitterExtractor.extractVariable.
+            if let (Some(row), Some(obj)) = (var_row, self.owned_object_value(value)) {
+                self.extract_owned_object_members(obj, row, kind, &name, true, false);
+                walked.get_or_insert_with(HashSet::new).insert(obj.id());
+                continue;
+            }
+
             // Exported const object-of-functions / store shapes.
             let object_of_fns: Option<Node> = match value {
                 Some(v) if matches!(v.kind(), "object" | "object_expression") => Some(v),
@@ -373,7 +710,12 @@ impl<'t> Walker<'t> {
             let has_inline_fns = object_of_fns
                 .map(|o| self.object_has_inline_functions(o))
                 .unwrap_or(false);
-            let extract_object_methods = is_exported && object_of_fns.is_some() && has_inline_fns;
+            // "Exported" includes the two-statement form `const useStore =
+            // create(…)` … `export default useStore` (is_exported_later), the
+            // shape most React Native stores are written in. Mirrors
+            // TreeSitterExtractor.isExportedLater.
+            let extract_object_methods =
+                (is_exported || self.is_exported_later(&name)) && object_of_fns.is_some() && has_inline_fns;
 
             let rtk_endpoints = match value {
                 Some(v) if v.kind() == "call_expression" => self.find_rtk_endpoints_object(v),
@@ -398,18 +740,27 @@ impl<'t> Walker<'t> {
                 }
             }
 
-            // Walk the initializer for calls — except the object/store shapes
-            // whose members are extracted method-by-method below.
+            // Walk the initializer for calls, ATTRIBUTED to the declared symbol
+            // (#693) — except the object/store shapes whose members are
+            // extracted method-by-method below (walking those too would
+            // double-count each member arrow's calls). Before this the walk ran
+            // with only the FILE on the stack (`const cfg = load()` recorded the
+            // file as load's caller) and object literals were skipped outright.
+            let members_extracted_separately = extract_object_methods
+                || rtk_endpoints.is_some()
+                || pinia_setup.is_some()
+                || !store_collections.is_empty();
             if let Some(v) = value {
-                let vk = v.kind();
-                if vk != "object"
-                    && vk != "object_expression"
-                    && !(extract_object_methods && vk == "call_expression")
-                    && rtk_endpoints.is_none()
-                    && pinia_setup.is_none()
-                    && store_collections.is_empty()
-                {
-                    self.visit_function_body(v);
+                if !members_extracted_separately {
+                    match var_row {
+                        Some(row) => {
+                            self.stack.push(Scope { row, kind, name: name.clone() });
+                            self.visit_function_body(v);
+                            self.stack.pop();
+                            walked.get_or_insert_with(HashSet::new).insert(v.id());
+                        }
+                        None => self.visit_function_body(v),
+                    }
                 }
             }
 
@@ -428,6 +779,7 @@ impl<'t> Walker<'t> {
                 self.extract_object_literal_functions(coll);
             }
         }
+        walked
     }
 
     /// extractRtkHookBindings — `export const { useGetXQuery } = api`.
@@ -454,6 +806,189 @@ impl<'t> Walker<'t> {
         }
     }
 
+    // --- owned object literals (#2300) ------------------------------------------------
+
+    /// ownsObjectLiterals: a generated or minified bundle — named so or not —
+    /// keeps the old shape. (Every tsjs variant is TS/JS, so only that check
+    /// remains; it is computed once per file.)
+    fn owns_object_literals(&self) -> bool {
+        self.owns_objects
+    }
+
+    /// ownedMemberFunction: the function an owned literal's member becomes,
+    /// named by its static key — `load() {…}`, `load: () => {…}`,
+    /// `load: function () {…}`, `load: function* () {…}`. None for every other
+    /// member (a computed key, a value, a shorthand, a spread).
+    fn owned_member_function(&self, member: Node<'t>) -> Option<(Node<'t>, String)> {
+        if member.kind() == "method_definition" {
+            let key = member.child_by_field_name("name")?;
+            if !is_static_object_key(key.kind()) {
+                return None;
+            }
+            return Some((member, util::object_key_name(self.text(key))));
+        }
+        if member.kind() != "pair" {
+            return None;
+        }
+        let key = member.child_by_field_name("key")?;
+        let value = member.child_by_field_name("value")?;
+        if !is_static_object_key(key.kind()) || !is_object_member_function(value.kind()) {
+            return None;
+        }
+        Some((value, util::object_key_name(self.text(key))))
+    }
+
+    /// ownedObjectValue: `value` when it is an object literal owning at least
+    /// one function member.
+    pub(super) fn owned_object_value(&self, value: Option<Node<'t>>) -> Option<Node<'t>> {
+        let value = value?;
+        if !matches!(value.kind(), "object" | "object_expression") || !self.owns_object_literals() {
+            return None;
+        }
+        for i in 0..value.named_child_count() {
+            if let Some(member) = value.named_child(i) {
+                if self.owned_member_function(member).is_some() {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
+    /// Put an owner on the stack — on top of the file alone for one on the
+    /// global object — returning what was set aside for leave_owner.
+    fn enter_owner(&mut self, row: u32, kind: &'static str, name: &str, global: bool) -> Vec<Scope> {
+        let rest = if global { self.stack.split_off(1) } else { Vec::new() };
+        self.stack.push(Scope { row, kind, name: name.to_string() });
+        rest
+    }
+
+    fn leave_owner(&mut self, rest: Vec<Scope>) {
+        self.stack.pop();
+        self.stack.extend(rest);
+    }
+
+    /// extractOwnedObjectMembers: each function member becomes its own node,
+    /// qualified under the owner (at file scope for one on the global object).
+    /// Every other member runs where the literal is written: under the owner
+    /// for a module-scope declaration (`values_under_owner`, #693), under the
+    /// enclosing scope for a local or an assignment. The literal's shorthand
+    /// members go to the function-as-value capture the same way.
+    fn extract_owned_object_members(&mut self, obj: Node<'t>, row: u32, kind: &'static str, name: &str, values_under_owner: bool, global: bool) {
+        let held = values_under_owner.then(|| self.enter_owner(row, kind, name, global));
+        self.maybe_capture_fn_refs(obj);
+        for i in 0..obj.named_child_count() {
+            let Some(member) = obj.named_child(i) else { continue };
+            if let Some((func, member_name)) = self.owned_member_function(member) {
+                if values_under_owner {
+                    self.extract_function(func, Some(member_name));
+                } else {
+                    let rest = self.enter_owner(row, kind, name, global);
+                    self.extract_function(func, Some(member_name));
+                    self.leave_owner(rest);
+                }
+            } else {
+                self.visit_function_body(member);
+            }
+        }
+        if let Some(rest) = held {
+            self.leave_owner(rest);
+        }
+    }
+
+    /// extractLocalObjectOwner: `const api = { load() {…} }` in a function body
+    /// or an IIFE gets the node a module-scope declaration would, with its
+    /// members under it. False when the declarator holds no owned literal.
+    pub(super) fn extract_local_object_owner(&mut self, declarator: Node<'t>) -> bool {
+        let Some(name_node) = declarator.child_by_field_name("name") else { return false };
+        if name_node.kind() != "identifier" {
+            return false;
+        }
+        let Some(obj) = self.owned_object_value(declarator.child_by_field_name("value")) else {
+            return false;
+        };
+        let is_const = declarator.parent().map(|d| self.is_const_decl(d)).unwrap_or(false);
+        let kind: &'static str = if is_const { "constant" } else { "variable" };
+        let name = self.text(name_node).to_string();
+        // A local: never the target of another scope's value read.
+        let extra = Extra {
+            docstring: crate::docstring::preceding_docstring(declarator, self.src),
+            signature: Some(util::init_signature(self.text(obj))),
+            is_exported: Some(false),
+            not_value_target: true,
+            ..Extra::default()
+        };
+        let Some(row) = self.create_node(kind, &name, declarator, extra) else { return false };
+        self.extract_variable_type_annotation(declarator, row);
+        self.extract_owned_object_members(obj, row, kind, &name, false, false);
+        true
+    }
+
+    /// extractAssignedObjectOwner: `window.App = {…}` / `App.utils = {…}` /
+    /// `dw_page = {…}`. A plain identifier target is qualified like a
+    /// declaration. A path's owner is named by its last link and qualified by
+    /// the path as written, and so are its members (`window.App::init`); a
+    /// path on the global object is global wherever it is written, so it is
+    /// contained by the file. False (nothing extracted) for any other assignment.
+    pub(super) fn extract_assigned_object_owner(&mut self, node: Node<'t>, module_level: bool) -> bool {
+        let Some(obj) = self.owned_object_value(node.child_by_field_name("right")) else { return false };
+        let Some(path) = self.object_owner_path(node.child_by_field_name("left")) else { return false };
+        // A plain name assigned at module level is a global (`dw_page = {…}`);
+        // in a function it is a local being reassigned.
+        if path.len() == 1 && !module_level {
+            return false;
+        }
+        let qualified_name = (path.len() > 1).then(|| path.join("."));
+        let global = path.len() > 1 && is_host_global_root(&path[0]);
+        let rest = if global { self.stack.split_off(1) } else { Vec::new() };
+        let statement = node.parent().filter(|p| p.kind() == "expression_statement").unwrap_or(node);
+        let name = path.last().cloned().unwrap_or_default();
+        // `App.utils` is read as `App.utils`, never as a bare `utils`.
+        let extra = Extra {
+            docstring: crate::docstring::preceding_docstring(statement, self.src),
+            signature: Some(util::init_signature(self.text(obj))),
+            is_exported: Some(false),
+            qualified_name: qualified_name.clone(),
+            not_value_target: !(path.len() == 1 || global),
+            ..Extra::default()
+        };
+        let row = self.create_node("variable", &name, node, extra);
+        self.stack.extend(rest);
+        let Some(row) = row else { return false };
+        if let Some(qualified_name) = qualified_name {
+            self.object_path_owners.insert(row, qualified_name);
+        }
+        self.extract_owned_object_members(obj, row, "variable", &name, false, global);
+        true
+    }
+
+    /// objectOwnerPath: an assignment target's links written as plain names
+    /// (`dw_page` → [dw_page], `App.utils.dom` → [App, utils, dom]), or None
+    /// for anything else — `this.x`, `a[k]`, a call, CommonJS's
+    /// `module.exports` / `exports.x`, or a prototype.
+    fn object_owner_path(&self, left: Option<Node<'t>>) -> Option<Vec<String>> {
+        let mut path: Vec<String> = Vec::new();
+        let mut cur = left?;
+        while cur.kind() == "member_expression" {
+            let property = cur.child_by_field_name("property")?;
+            if property.kind() != "property_identifier" {
+                return None;
+            }
+            path.push(self.text(property).to_string());
+            cur = cur.child_by_field_name("object")?;
+        }
+        if cur.kind() != "identifier" {
+            return None;
+        }
+        let root = self.text(cur);
+        if root == "module" || root == "exports" || path.iter().any(|p| p == "prototype") {
+            return None;
+        }
+        path.push(root.to_string());
+        path.reverse();
+        Some(path)
+    }
+
     // --- object-literal / store helpers -------------------------------------------------
 
     pub(super) fn extract_object_literal_functions(&mut self, obj: Node<'t>) {
@@ -466,6 +1001,17 @@ impl<'t> Walker<'t> {
                     if matches!(v.kind(), "arrow_function" | "function_expression") {
                         let name = util::object_key_name(self.text(k));
                         self.extract_function(v, Some(name));
+                    } else if v.kind() == "call_expression" {
+                        // `key: Effect.fn("…")(function* () {…})` — see
+                        // curried_wrapper_bound_name.
+                        let fun = v
+                            .child_by_field_name("arguments")
+                            .and_then(|a| a.named_child(0));
+                        if let Some(f) = fun {
+                            if let Some(bound) = self.curried_wrapper_bound_name(f) {
+                                self.extract_function(f, Some(bound));
+                            }
+                        }
                     }
                 }
             } else if member.kind() == "method_definition" {
@@ -478,6 +1024,7 @@ impl<'t> Walker<'t> {
     }
 
     fn find_initializer_returned_object(&self, call: Node<'t>, depth: u32) -> Option<Node<'t>> {
+        stack_guard!();
         if depth > 4 {
             return None;
         }
@@ -499,6 +1046,7 @@ impl<'t> Walker<'t> {
 
     fn function_returned_object(&self, fn_node: Node<'t>) -> Option<Node<'t>> {
         fn as_object<'t>(n: Node<'t>) -> Option<Node<'t>> {
+            stack_guard!();
             match n.kind() {
                 "object" | "object_expression" => Some(n),
                 "parenthesized_expression" => {
@@ -873,6 +1421,7 @@ impl<'t> Walker<'t> {
     fn extract_ts_tuple_contract_names(&mut self, value: Node<'t>, alias_row: u32, alias_name: &str) {
         let mut tuples: Vec<Node> = Vec::new();
         fn collect<'t>(n: Node<'t>, depth: u32, out: &mut Vec<Node<'t>>) {
+            stack_guard!();
             if depth > 6 {
                 return;
             }
@@ -1034,13 +1583,36 @@ impl<'t> Walker<'t> {
 
     // --- extractCall (TS/JS generic tail) -------------------------------------------------
 
+    /// Identifier-rooted member chains have no inferred property type (#1566),
+    /// including host API chains (#1707). Keep the existing window namespace
+    /// escape; call-result and `this` receivers are outside this guard.
+    fn is_unresolved_member_chain(&self, receiver: Node<'t>) -> bool {
+        let mut cur = receiver;
+        if !matches!(cur.kind(), "member_expression" | "subscript_expression") {
+            return false;
+        }
+        while matches!(cur.kind(), "member_expression" | "subscript_expression") {
+            match cur.child_by_field_name("object") {
+                Some(next) => cur = next,
+                None => return false,
+            }
+        }
+        cur.kind() == "identifier" && self.text(cur) != "window"
+    }
+
     pub(super) fn extract_call(&mut self, node: Node<'t>) {
         if self.stack.is_empty() {
             return;
         }
-        let func = node
-            .child_by_field_name("function")
-            .or_else(|| node.named_child(0));
+        let raw = node.child_by_field_name("function").or_else(|| node.named_child(0));
+        let func = raw.map(|f| self.peel_await_callee(f));
+        // Where the reference sits: the call, or the callee an `await` was
+        // peeled off (`await f<T>(x)` starts at `await`; the call to `f`
+        // starts where `f` does, as in `await f(x)`). Mirrors refStart.
+        let mut at = match (raw, func) {
+            (Some(r), Some(f)) if r.id() != f.id() => f,
+            _ => node,
+        };
         let mut callee_name = String::new();
 
         if let Some(func) = func {
@@ -1055,7 +1627,10 @@ impl<'t> Walker<'t> {
                         .child_by_field_name("object")
                         .or_else(|| func.child_by_field_name("operand"))
                         .or_else(|| func.child_by_field_name("argument"))
-                        .or_else(|| func.named_child(0));
+                        .or_else(|| func.named_child(0))
+                        // Look through `(x)`, `x!`, `(x as T)`, `(await f())`
+                        // (mirrors peelTsJsReceiver).
+                        .map(peel_receiver);
                     // Literal receivers call builtins, never project symbols (#1230).
                     if let Some(r) = receiver {
                         if is_literal_receiver(r.kind()) {
@@ -1072,14 +1647,71 @@ impl<'t> Walker<'t> {
                         } else {
                             callee_name = method_name.to_string();
                         }
+                    } else if receiver.is_some_and(|r| self.is_unresolved_member_chain(r)) {
+                        // Retain the call site for effects without guessing a
+                        // project method. Mirrors the TS extraction path.
+                        let chain = self.text(func).replace("?.", ".");
+                        let Some(chain) = Self::plain_member_name(&chain) else { return };
+                        callee_name = chain;
+                    } else if let Some(field) = receiver.and_then(|r| self.this_field_of(r)) {
+                        // `this.<field>.<method>()` — keep the field so the
+                        // resolver can read its declared type (#1496). Mirrors
+                        // TreeSitterExtractor.extractCall.
+                        callee_name = format!("this.{field}.{method_name}");
+                    } else if let Some(element) = receiver.and_then(|r| self.this_subscript_of(r)) {
+                        // `this.<field>[k].<method>()` — an element of the
+                        // field, typed by the resolver from the field's
+                        // declaration; `this['svc']` is the field itself.
+                        // Mirrors TreeSitterExtractor.extractCall.
+                        callee_name = format!("{element}.{method_name}");
+                    } else if let Some(r) = receiver.filter(|r| r.kind() == "call_expression") {
+                        // Call receiver — `make().run()` (#1683): keep the inner
+                        // callee as `<inner>().<method>`, or emit nothing when it
+                        // is not a plain name / member chain. Mirrors
+                        // TreeSitterExtractor.extractCall.
+                        let Some(inner) = self.plain_inner_callee(r) else { return };
+                        callee_name = format!("{inner}().{method_name}");
+                    } else if let Some(r) = receiver.filter(|r| r.kind() == "new_expression") {
+                        // Constructor receiver — `new Runner().run()`: keep the
+                        // class as `new <Class>().<method>` so the resolver
+                        // resolves the method on it or nowhere; emit nothing for
+                        // a constructor that is not a plain name / member chain.
+                        // Mirrors TreeSitterExtractor.extractCall.
+                        let Some(ctor) = r
+                            .child_by_field_name("constructor")
+                            .and_then(|c| Self::plain_member_name(self.text(c)))
+                        else {
+                            return;
+                        };
+                        // `new this.constructor().copy(this)`, a static
+                        // `new this().init()`: an instance of the enclosing
+                        // class keeps the bare method name, as a call on
+                        // `this` does.
+                        callee_name = if ctor == "this" || ctor == "this.constructor" {
+                            method_name.to_string()
+                        } else {
+                            format!("new {ctor}().{method_name}")
+                        };
+                    } else if receiver.is_some_and(|r| !keeps_bare_receiver(r, self.src)) {
+                        // An expression receiver with no static type
+                        // (`(a ?? b).map()`, `f().list.map()`): emit nothing
+                        // rather than the bare method name. Mirrors
+                        // TreeSitterExtractor.extractCall.
+                        return;
                     } else {
-                        // (the call-receiver re-encode branches are other
-                        // languages'; TS/JS keeps the bare method name)
                         callee_name = method_name.to_string();
                     }
                 }
             } else {
-                callee_name = self.text(func).to_string();
+                // A callee that names nothing (a call, a function, a
+                // subscript) is no reference. Mirrors tsJsCalleeName.
+                match self.callee_name_of(func) {
+                    Some((name, name_at)) => {
+                        callee_name = name;
+                        at = name_at;
+                    }
+                    None => return,
+                }
             }
         }
 
@@ -1091,11 +1723,124 @@ impl<'t> Walker<'t> {
         }
 
         if !callee_name.is_empty() {
-            self.push_call_ref(&callee_name.clone(), node);
+            self.push_call_ref(&callee_name.clone(), at);
+        }
+    }
+
+    /// The name a non-member callee writes, past `(fn)`, `fn!`, `(fn as F)`,
+    /// `await` and a tag's type arguments (`css<Props>`), or None for one that
+    /// names nothing: a call, a function, a subscript, `(0, fn)`. A dotted
+    /// chain keeps its text, `(a.b)()` → `a.b`. The node is where the name
+    /// starts, which is where the reference sits. Mirrors tsJsCalleeName.
+    fn callee_name_of(&self, func: Node<'t>) -> Option<(String, Node<'t>)> {
+        let mut cur = peel_receiver(func);
+        while cur.kind() == "instantiation_expression" {
+            let inner = cur.child_by_field_name("function").or_else(|| cur.named_child(0))?;
+            cur = peel_receiver(inner);
+        }
+        match cur.kind() {
+            "identifier" | "super" | "import" => Some((self.text(cur).to_string(), cur)),
+            "member_expression" => {
+                let chain: String = self.text(cur).chars().filter(|c| !c.is_whitespace()).collect();
+                util::dotted_chain().is_match(&chain).then_some((chain, cur))
+            }
+            _ => None,
         }
     }
 
     // --- extractInstantiation -----------------------------------------------------------
+
+    /// `this.<field>` as a member_expression receiver → Some(field) (#1496, #1987).
+    fn this_field_of(&self, receiver: Node<'t>) -> Option<String> {
+        if receiver.kind() != "member_expression" {
+            return None;
+        }
+        let object = receiver.child_by_field_name("object")?;
+        let property = receiver.child_by_field_name("property")?;
+        // An ES private field (`this.#items`) keeps its `#` (#1987).
+        if object.kind() != "this"
+            || !matches!(property.kind(), "property_identifier" | "private_property_identifier")
+        {
+            return None;
+        }
+        Some(self.text(property).to_string())
+    }
+
+    /// A receiver subscripting the enclosing class's object: `this.<field>[k]`
+    /// → `this.<field>[]`, `this['svc']` → `this.svc`; None for any other
+    /// subscript. Mirrors tsThisSubscriptReceiver.
+    fn this_subscript_of(&self, receiver: Node<'t>) -> Option<String> {
+        if receiver.kind() != "subscript_expression" {
+            return None;
+        }
+        let object = peel_receiver(receiver.child_by_field_name("object")?);
+        if object.kind() == "this" {
+            let index = receiver.child_by_field_name("index")?;
+            if index.kind() != "string" {
+                return None;
+            }
+            let text = self.text(index);
+            let quoted = text.len() >= 2
+                && (text.starts_with('\'') || text.starts_with('"'))
+                && text.ends_with(&text[..1]);
+            let key = if quoted { &text[1..text.len() - 1] } else { return None };
+            let mut chars = key.chars();
+            let first = chars.next()?;
+            if !(first.is_ascii_alphabetic() || first == '_' || first == '$')
+                || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            {
+                return None;
+            }
+            return Some(format!("this.{key}"));
+        }
+        self.this_field_of(object).map(|field| format!("this.{field}[]"))
+    }
+
+    /// `await f<T>(x)` parses with `await f` as the callee (#2586), and a
+    /// prefix operator over a generic call the same way
+    /// (`!settings.get<boolean>('X')`, `void apiRequest<T>()`); the call is to
+    /// `f`. Peels every `await` and prefix operator, skipping a comment written
+    /// after an `await`. TS-family only. Mirrors peelTsPrefixedCallee.
+    fn peel_await_callee(&self, node: Node<'t>) -> Node<'t> {
+        if !self.variant.is_ts() {
+            return node;
+        }
+        let mut cur = node;
+        loop {
+            let inner = match cur.kind() {
+                "unary_expression" => cur.child_by_field_name("argument"),
+                "await_expression" => {
+                    let mut walker = cur.walk();
+                    let found = cur.named_children(&mut walker).find(|c| c.kind() != "comment");
+                    found
+                }
+                _ => break,
+            };
+            let Some(inner) = inner else { break };
+            cur = inner;
+        }
+        cur
+    }
+
+    /// The callee of a call-expression receiver when it is a plain identifier
+    /// or member chain (`make`, `d.setdefault`), whitespace stripped (#1683).
+    fn plain_inner_callee(&self, call: Node<'t>) -> Option<String> {
+        let inner = self.peel_await_callee(call.child_by_field_name("function")?);
+        Self::plain_member_name(self.text(inner))
+    }
+
+    fn plain_member_name(source: &str) -> Option<String> {
+        let text: String = source.chars().filter(|c| !c.is_whitespace()).collect();
+        if text.is_empty() {
+            return None;
+        }
+        let ok = text.split('.').all(|seg| {
+            let mut chars = seg.chars();
+            matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        });
+        if ok { Some(text) } else { None }
+    }
 
     pub(super) fn extract_instantiation(&mut self, node: Node<'t>) {
         if self.stack.is_empty() {
@@ -1230,6 +1975,7 @@ impl<'t> Walker<'t> {
     // --- extractInheritance (TS/JS clauses) ---------------------------------------------------
 
     pub(super) fn extract_inheritance(&mut self, node: Node<'t>, class_row: u32) {
+        stack_guard!();
         let extends_kind = edge_kind_index("extends").unwrap();
         let implements_kind = edge_kind_index("implements").unwrap();
         for i in 0..node.named_child_count() {
@@ -1238,16 +1984,32 @@ impl<'t> Walker<'t> {
                 // TS `extends_clause` (the other spellings are other grammars').
                 "extends_clause" | "superclass" | "base_clause" | "extends_interfaces" => {
                     if let Some(target) = child.named_child(0) {
-                        let name = self.text(target).to_string();
+                        let name = self.supertype_name(target);
                         self.push_ref(class_row, &name, extends_kind, target);
                     }
                 }
                 "implements_clause" | "class_interface_clause" | "super_interfaces" | "interfaces" => {
                     for j in 0..child.named_child_count() {
                         if let Some(iface) = child.named_child(j) {
-                            let name = self.text(iface).to_string();
+                            let name = self.supertype_name(iface);
                             self.push_ref(class_row, &name, implements_kind, iface);
                         }
+                    }
+                }
+                // TS `interface Repo<T> extends Base, ns.Shape, Store<T>` — each
+                // supertype is a `type` of the clause; a `generic_type` is named
+                // by its `name` field (`Store`, never `Store<T>`).
+                "extends_type_clause" => {
+                    let mut cursor = child.walk();
+                    let targets: Vec<Node<'t>> = child.children_by_field_name("type", &mut cursor).collect();
+                    for target in targets {
+                        let named = if target.kind() == "generic_type" {
+                            target.child_by_field_name("name").unwrap_or(target)
+                        } else {
+                            target
+                        };
+                        let name = self.text(named).to_string();
+                        self.push_ref(class_row, &name, extends_kind, target);
                     }
                 }
                 // JS `class Foo extends Bar` — class_heritage holds a bare
@@ -1263,6 +2025,20 @@ impl<'t> Walker<'t> {
                 _ => {}
             }
         }
+    }
+
+    /// supertypeName — a parameterized supertype (`generic_type`) by the name
+    /// before its type arguments: `Store` for `implements Store<string>`.
+    fn supertype_name(&self, node: Node<'t>) -> String {
+        if node.kind() == "generic_type" {
+            let named = (0..node.named_child_count())
+                .filter_map(|j| node.named_child(j))
+                .find(|c| c.kind() != "type_arguments");
+            if let Some(named) = named {
+                return self.text(named).to_string();
+            }
+        }
+        self.text(node).to_string()
     }
 
     // --- type annotations (#381 — TS family only) ----------------------------------------------
@@ -1298,6 +2074,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_type_refs_from_subtree(&mut self, node: Node<'t>, from_row: u32) {
+        stack_guard!();
         if node.kind() == "type_identifier" {
             let type_name = self.text(node).to_string();
             if !type_name.is_empty() && !is_builtin_type(&type_name) {
@@ -1311,6 +2088,15 @@ impl<'t> Walker<'t> {
             }
         }
     }
+}
+
+/// A class expression's head, `class Widget extends Base`: its text up to the
+/// body, trailing spaces and line breaks dropped. Mirrors classExpressionHead
+/// (tree-sitter.ts).
+fn class_expression_head(src: &str, node: Node<'_>, body: Node<'_>) -> String {
+    src[node.start_byte()..body.start_byte()]
+        .trim_end_matches(|c: char| matches!(c, ' ' | '\t' | '\r' | '\n'))
+        .to_string()
 }
 
 /// `.replace(/\s+/g, ' ')` for the tuple-contract signature.
@@ -1329,4 +2115,62 @@ fn collapse_ws(s: &str) -> String {
         }
     }
     out
+}
+
+/// TS/JS wrappers that keep a member call's receiver the same object
+/// (mirrors TS_JS_TRANSPARENT_RECEIVER_TYPES in tree-sitter.ts).
+fn is_transparent_receiver(kind: &str) -> bool {
+    matches!(
+        kind,
+        "parenthesized_expression"
+            | "non_null_expression"
+            | "as_expression"
+            | "satisfies_expression"
+            | "type_assertion"
+            | "await_expression"
+    )
+}
+
+/// Strip transparent wrappers off a receiver (mirrors peelTsJsReceiver),
+/// including the grammar's `(a && b)!` parse of `a && b!`.
+fn peel_receiver(node: Node<'_>) -> Node<'_> {
+    let mut cur = node;
+    while is_transparent_receiver(cur.kind()) {
+        let mut inner = if cur.kind() == "type_assertion" {
+            cur.named_child(cur.named_child_count().saturating_sub(1))
+        } else {
+            cur.named_child(0)
+        };
+        if cur.kind() == "non_null_expression" {
+            while let Some(b) = inner.filter(|n| n.kind() == "binary_expression") {
+                inner = b.child_by_field_name("right");
+            }
+        }
+        match inner {
+            Some(i) => cur = i,
+            None => break,
+        }
+    }
+    cur
+}
+
+/// `this` / `super`, or a member chain rooted at either or at `window`, still
+/// collapse to the bare method name; a subscript anywhere in the chain does
+/// not (mirrors keepsBareTsJsReceiver).
+fn keeps_bare_receiver(node: Node<'_>, src: &str) -> bool {
+    let mut cur = node;
+    while matches!(cur.kind(), "member_expression" | "subscript_expression") {
+        if cur.kind() == "subscript_expression" {
+            return false;
+        }
+        match cur.child_by_field_name("object") {
+            Some(object) => cur = peel_receiver(object),
+            None => return false,
+        }
+    }
+    match cur.kind() {
+        "this" | "super" => true,
+        "identifier" => &src[cur.byte_range()] == "window",
+        _ => false,
+    }
 }

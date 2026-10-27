@@ -22,6 +22,16 @@ public class TortureService extends BaseService implements Runnable, AutoCloseab
   protected int count = 0;
   private final List<String> names;
   int packagePrivate, secondDeclarator;
+  /** Field initializers — walked scoped to the field (#693). */
+  private final Runnable fieldLambda = () -> helper(RETRY_LIMITS);
+  private final Runnable fieldAnonClass = new Runnable() {
+    @Override
+    public void run() {
+      helper(RETRY_LIMITS);
+    }
+  };
+  private final Runnable fieldMethodRef = TortureService::compute;
+  private static final List<Runnable> FIELD_TABLE = List.of(TortureService::compute);
 
   /** Ctor javadoc. */
   public TortureService(List<String> names) {
@@ -68,6 +78,27 @@ public class TortureService extends BaseService implements Runnable, AutoCloseab
     Direction opposite() {
       return this == UP ? DOWN : UP;
     }
+  }
+
+  enum Step {
+    NEXT(1) {
+      @Override
+      int apply(int at) {
+        return clamp(at + size);
+      }
+    },
+    BACK(-1) {
+      @Override
+      int apply(int at) { return at + size; }
+    };
+
+    final int size;
+
+    Step(int size) { this.size = size; }
+
+    abstract int apply(int at);
+
+    static int clamp(int at) { return Math.max(0, at); }
   }
 
   interface Listener {

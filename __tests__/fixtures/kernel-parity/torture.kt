@@ -50,9 +50,18 @@ val topDelegated by lazy { WidgetK(1) }
 val (destA, destB) = makePair()
 val withGetter: Int
     get() = 42
+val initLambda: () -> Unit = { caller() }
+val initSam = Runnable { caller() }
+val handlerList = listOf(::caller)
+val initObject = object : Runnable {
+    override fun run() {
+        caller()
+    }
+}
 
 class WidgetK(val size: Int, private var name: String = defaultName()) {
     val area: Int = size * size
+    val hooks = listOf(::caller)
     var label: String? = null
     val computed: Int
         get() = size * 2
@@ -265,3 +274,20 @@ fun labeledLambda() {
 }
 
 fun whereClause(): Int where Int : Comparable<Int> = 1
+
+class AccessorK {
+    val sameLineGetter: Int get() = compute()
+    var sameLinePair: Int get() = compute()
+        set(v) { draw(v) }
+}
+
+class SiblingAccessorK {
+    var nextLine: Int = 0
+        get() = compute()
+        set(v) { draw(v) }
+    val (localA, localB) = makePair()
+    init {
+        val fromInit = compute()
+        register(fromInit)
+    }
+}

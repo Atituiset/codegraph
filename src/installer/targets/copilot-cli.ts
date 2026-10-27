@@ -42,6 +42,7 @@ import {
   getMcpServerConfig,
   jsonDeepEqual,
   readJsonFile,
+  removeFileUnlessLinked,
   writeJsonFile,
 } from './shared';
 
@@ -95,9 +96,15 @@ function copilotOnPath(): boolean {
   return false;
 }
 
-function buildCopilotMcpConfig(): { type: string; command: string; args: string[]; tools: string[] } {
+/**
+ * The shared stdio entry, every tool allowed, and `deferTools: 'never'`: Copilot CLI's tool
+ * search (on by default from ~30 connected tools on Claude and GPT-5.4+ models) otherwise holds
+ * MCP tools back until the model searches for them, so `codegraph_explore` would be a name the
+ * model has to go looking for before it can follow the "call it instead of Read" instruction.
+ */
+function buildCopilotMcpConfig(): { type: string; command: string; args: string[]; tools: string[]; deferTools: 'never' } {
   const base = getMcpServerConfig();
-  return { ...base, tools: ['*'] };
+  return { ...base, tools: ['*'], deferTools: 'never' };
 }
 
 class CopilotCliTarget implements AgentTarget {
@@ -152,7 +159,9 @@ class CopilotCliTarget implements AgentTarget {
       // Nothing left but the `{}` we'd write back — delete the file so
       // uninstall fully reverses a from-scratch install. A leftover
       // empty file would keep detect() reporting the CLI as installed.
-      fs.unlinkSync(file);
+      // A symbolic link is the user's, so it is kept with `{}` written
+      // through it (#2721).
+      removeFileUnlessLinked(file, '{}\n');
     } else {
       writeJsonFile(file, config);
     }

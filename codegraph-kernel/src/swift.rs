@@ -110,6 +110,75 @@ fn strip_js_ws(s: &str) -> String {
     s.chars().filter(|c| !is_js_space(*c)).collect()
 }
 
+/// SWIFT_TYPE_PATH_RECEIVER (tree-sitter.ts): `API.PackageController.GetRoute` —
+/// two segments or more, each an ASCII capital then `[A-Za-z0-9_]*` (JS `\w`),
+/// not led by `Self.`.
+fn is_type_path(s: &str) -> bool {
+    if s.starts_with("Self.") {
+        return false;
+    }
+    let mut segments = 0;
+    for seg in s.split('.') {
+        let b = seg.as_bytes();
+        if b.is_empty() || !b[0].is_ascii_uppercase() || !b[1..].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+            return false;
+        }
+        segments += 1;
+    }
+    segments >= 2
+}
+
+/// isSwiftCallWrapper (tree-sitter.ts): a wrapper that leaves a call's target
+/// the same — `try`/`await`, which before a chain bind to the part before its
+/// last call (`try! A().b()` is `(try! A()).b()`), or a prefix operator, which
+/// binds to the leftmost operand (`!isReady()` is `(!isReady)()`). An implicit
+/// member's leading `.` (`.success(x)`) is part of the name.
+fn is_call_wrapper(node: Node, src: &str) -> bool {
+    match node.kind() {
+        "try_expression" | "await_expression" => true,
+        "prefix_expression" => !src[node.byte_range()].starts_with('.'),
+        _ => false,
+    }
+}
+
+/// swiftWrappedOperand: the operand a call wrapper wraps.
+fn wrapped_operand<'t>(node: Node<'t>) -> Option<Node<'t>> {
+    node.child_by_field_name(if node.kind() == "prefix_expression" { "target" } else { "expr" })
+}
+
+/// peelSwiftCallWrappers: strip call wrappers off a callee or receiver.
+fn peel_call_wrappers<'t>(node: Node<'t>, src: &str) -> Node<'t> {
+    let mut cur = node;
+    while is_call_wrapper(cur, src) {
+        match wrapped_operand(cur) {
+            Some(inner) => cur = inner,
+            None => break,
+        }
+    }
+    cur
+}
+
+/// swiftUnwrappedText: a receiver's text from its innermost wrapped operand
+/// on — the wrappers sit on the chain's left edge, so `!Settings.Defaults`
+/// reads `Settings.Defaults` and `try! Foo.make().bar` reads `Foo.make().bar`.
+fn unwrapped_text<'s>(node: Node, src: &'s str) -> &'s str {
+    let mut start = node.start_byte();
+    let mut cur = Some(node);
+    while let Some(n) = cur {
+        if is_call_wrapper(n, src) {
+            cur = wrapped_operand(n);
+            if let Some(inner) = cur {
+                start = inner.start_byte();
+            }
+        } else if matches!(n.kind(), "navigation_expression" | "call_expression") {
+            cur = n.named_child(0);
+        } else {
+            break;
+        }
+    }
+    &src[start..node.end_byte()]
+}
+
 struct Scope {
     row: u32,
     kind: &'static str,
@@ -152,6 +221,7 @@ pub struct Walker<'t> {
     file_path: &'t str,
     line_starts: Vec<usize>,
     arena: Arena,
+    node_id_allocator: ids::NodeIdAllocator,
     tables: Tables,
     stack: Vec<Scope>,
     node_ids: Vec<String>,
@@ -182,6 +252,7 @@ pub fn extract(file_path: &str, source: &str) -> Result<EmitOut, String> {
         file_path,
         line_starts: util::line_starts(source),
         arena: Arena::default(),
+        node_id_allocator: ids::NodeIdAllocator::default(),
         tables: Tables::default(),
         stack: Vec::new(),
         node_ids: Vec::new(),
@@ -264,6 +335,7 @@ fn first_simple_identifier<'t>(node: Option<Node<'t>>) -> Option<Node<'t>> {
 /// lastNamedOfType (function-ref.ts:600): rightmost matching DESCENDANT in
 /// document order (deeper matches override).
 fn last_simple_identifier<'t>(node: Node<'t>) -> Option<Node<'t>> {
+    stack_guard!();
     let mut found: Option<Node<'t>> = None;
     for i in 0..node.named_child_count() {
         let Some(child) = node.named_child(i) else { continue };
@@ -331,7 +403,8 @@ impl<'t> Walker<'t> {
             return None;
         }
         let start_line = self.line_of(node);
-        let id = ids::node_id(self.file_path, kind, name, start_line);
+        let column = self.col_of(node);
+        let id = self.node_id_allocator.generate(self.file_path, kind, name, start_line, column);
         let end_line = node.end_position().row as u32 + 1; // no resolveBody for swift
 
         let qualified = {
@@ -560,6 +633,7 @@ impl<'t> Walker<'t> {
     // --- the dispatcher (visitNode, Swift-relevant branches) -----------------------
 
     fn visit_node(&mut self, node: Node<'t>) {
+        stack_guard!();
         let kind = node.kind();
         let mut skip_children = false;
 
@@ -632,6 +706,7 @@ impl<'t> Walker<'t> {
     /// THE DEDICATED PROPERTY BRANCH (tree-sitter.ts:1113-1193, #1020).
     /// Returns skipChildren.
     fn dedicated_property_branch(&mut self, node: Node<'t>) -> bool {
+        stack_guard!();
         let owner_row = self.top_row();
         let info = self.swift_property_info(node);
         let mut computed_prop: Option<(u32, String)> = None;
@@ -707,6 +782,7 @@ impl<'t> Walker<'t> {
     }
 
     fn walk_attr_args(&mut self, n: Node<'t>) {
+        stack_guard!();
         self.extract_static_member_ref(n);
         for i in 0..n.named_child_count() {
             if let Some(c) = n.named_child(i) {
@@ -718,10 +794,12 @@ impl<'t> Walker<'t> {
     // --- visitFunctionBody ---------------------------------------------------------
 
     fn visit_function_body(&mut self, body: Node<'t>) {
+        stack_guard!();
         self.visit_for_calls_and_structure(body);
     }
 
     fn visit_for_calls_and_structure(&mut self, node: Node<'t>) {
+        stack_guard!();
         let kind = node.kind();
         self.maybe_capture_fn_refs(node);
 
@@ -775,6 +853,7 @@ impl<'t> Walker<'t> {
     // --- extractors -----------------------------------------------------------------
 
     fn extract_function(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         if name == "<anonymous>" {
             if let Some(body) = node.child_by_field_name("body") {
@@ -802,6 +881,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_method(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -823,6 +903,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_class(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -845,6 +926,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_struct(&mut self, node: Node<'t>) {
+        stack_guard!();
         // Body gate (:1876) — bodiless mints nothing (record exemption is C#).
         let Some(body) = node.child_by_field_name("body") else { return };
         let name = self.extract_name(node);
@@ -866,6 +948,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_enum(&mut self, node: Node<'t>) {
+        stack_guard!();
         let Some(body) = node.child_by_field_name("body") else { return };
         let name = self.extract_name(node);
         let extra = Extra {
@@ -900,6 +983,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_interface(&mut self, node: Node<'t>) {
+        stack_guard!();
         let name = self.extract_name(node);
         let extra = Extra {
             docstring: preceding_docstring(node, self.src),
@@ -990,6 +1074,13 @@ impl<'t> Walker<'t> {
             .child_by_field_name("function")
             .or_else(|| node.named_child(0));
         let Some(func) = func else { return };
+        // `-(a + b)`: an operator token applied to a parenthesized value leaves
+        // the call with no callee node, only its arguments (tree-sitter.ts).
+        // `!(x)` keeps its `bang` callee: a project may declare `prefix func !`.
+        if func.kind() == "call_suffix" {
+            return;
+        }
+        let func = peel_call_wrappers(func, self.src);
         let mut callee_name = String::new();
 
         if func.kind() == "navigation_expression" {
@@ -1010,11 +1101,14 @@ impl<'t> Walker<'t> {
                 });
             if let Some(property) = property {
                 let method_name = self.text(property);
+                // Through a prefix operator, `try` and `await`:
+                // `(!store).contains(x)`, `(try! A()).b()`.
                 let receiver = func
                     .child_by_field_name("object")
                     .or_else(|| func.child_by_field_name("operand"))
                     .or_else(|| func.child_by_field_name("argument"))
-                    .or_else(|| func.named_child(0));
+                    .or_else(|| func.named_child(0))
+                    .map(|r| peel_call_wrappers(r, self.src));
                 if let Some(r) = receiver {
                     if is_literal_receiver(r.kind()) {
                         return; // `"lit".upper()` / `5.times()` — nothing
@@ -1033,9 +1127,11 @@ impl<'t> Walker<'t> {
                 } else if receiver.map(|r| r.kind() == "call_expression").unwrap_or(false) {
                     // #750 swift re-encode: innerNav = receiver.namedChild(0),
                     // ws-stripped; capitalized chains only.
+                    // Without a wrapper on its left edge
+                    // (`try! Foo.make().bar().baz()`).
                     let inner = receiver.unwrap().named_child(0);
                     let inner_callee =
-                        inner.map(|n| strip_js_ws(self.text(n))).unwrap_or_default();
+                        inner.map(|n| strip_js_ws(unwrapped_text(n, self.src))).unwrap_or_default();
                     let reencode = inner_callee
                         .as_bytes()
                         .first()
@@ -1046,8 +1142,17 @@ impl<'t> Walker<'t> {
                     } else {
                         method_name.to_string()
                     };
+                } else if let Some(path) = receiver
+                    .filter(|r| r.kind() == "navigation_expression")
+                    .map(|r| strip_js_ws(unwrapped_text(r, self.src)))
+                    .filter(|p| is_type_path(p))
+                {
+                    // A type path, `API.PackageController.GetRoute.query(on:)`:
+                    // keep it for the resolver (tree-sitter.ts SWIFT_TYPE_PATH_RECEIVER),
+                    // without a prefix operator on its head (`!Settings.Defaults.isOn()`).
+                    callee_name = format!("{path}.{method_name}");
                 } else {
-                    // self_expression / super_expression / inner nav /
+                    // self_expression / super_expression / instance nav /
                     // postfix / multi_line_string_literal → bare method name.
                     callee_name = method_name.to_string();
                 }
@@ -1097,6 +1202,9 @@ impl<'t> Walker<'t> {
             .or_else(|| node.child_by_field_name("scope"))
             .or_else(|| node.named_child(0));
         let Some(recv) = recv else { return };
+        // A prefix operator binds to the head: `!Config.shared.isOn` is
+        // `(!Config).shared.isOn` (tree-sitter.ts).
+        let recv = peel_call_wrappers(recv, self.src);
         if matches!(
             recv.kind(),
             "identifier" | "type_identifier" | "simple_identifier" | "name" | "scoped_type_identifier"
@@ -1151,6 +1259,7 @@ impl<'t> Walker<'t> {
     }
 
     fn extract_type_refs_from_subtree(&mut self, node: Node<'t>, from_row: u32) {
+        stack_guard!();
         if node.kind() == "type_identifier" {
             let type_name = self.text(node).to_string();
             if !type_name.is_empty() && !is_builtin_type(&type_name) {
@@ -1317,6 +1426,7 @@ impl<'t> Walker<'t> {
     }
 
     fn normalize_fn_ref_value(&mut self, v: Node<'t>, from: u32, depth: u32) {
+        stack_guard!();
         if depth > 4 {
             return;
         }
@@ -1381,6 +1491,7 @@ impl<'t> Walker<'t> {
     }
 
     fn scan_fn_ref_subtree(&mut self, node: Node<'t>, depth: u32) {
+        stack_guard!();
         if depth > 12 {
             return;
         }
