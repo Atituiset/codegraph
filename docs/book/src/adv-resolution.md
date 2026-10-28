@@ -18,7 +18,7 @@ pending ──解析成功──▶ 行被删除，边被创建
 
 ## resolveAndPersistBatched：主循环
 
-`resolution/index.ts:1509` 的主循环是双缓冲流水线：
+`resolution/index.ts:2471` 的主循环是双缓冲流水线：
 
 ```
 warmCachesYielding()                     ← 流式收集全部已知名字（同步版曾阻塞 28s）
@@ -45,7 +45,7 @@ loop:
 
 ## resolveOne：策略阶梯
 
-单条引用的解析是一个有序的策略瀑布（L855 起），每级要么给出带置信度的答案，要么放行给下一级。先看真实骨架：
+单条引用的解析是一个有序的策略瀑布（`resolveOne` L1398 起），每级要么给出带置信度的答案，要么放行给下一级。先看真实骨架：
 
 ```ts
 resolveOne(ref: UnresolvedRef): ResolvedRef | null {
@@ -95,7 +95,7 @@ resolveOne(ref: UnresolvedRef): ResolvedRef | null {
 
 **JVM FQN 直查。** Java 的全限定名直接命中 qualified_name 索引，零歧义。
 
-**框架优先于通用匹配。** 26 个框架 resolver 有机会先认领引用（confidence ≥0.9 早退）：Express 认领 middleware 命名约定，Spring 认领注解模式……它们掌握通用 matcher 不可能知道的领域知识。
+**框架优先于通用匹配。** 36 个框架 resolver 有机会先认领引用（confidence ≥0.9 早退）：Express 认领 middleware 命名约定，Spring 认领注解模式……它们掌握通用 matcher 不可能知道的领域知识。
 
 **import 解析。** `resolveViaImport` 回答"这个名字是从哪个文件来的"。相对导入逐扩展名探测（`.ts,.tsx,.d.ts,.js,/index.ts...`，每种语言一张候选表）；别名导入按 tsconfig paths（递归解析 extends！）→ workspace packages → legacy 硬编码的顺序尝试；Cargo workspace 的成员 glob 由独立模块提供；Go 用 go.mod 的 module path 判定本地包。有一类特殊：C/C++ include、COBOL copybook、PHP include **只解析到文件节点且失败时不回落到符号名匹配**——注释的理由就是那句 mantra："a wrong edge is worse than none"。头文件路径歧义太大，宁可断链。
 

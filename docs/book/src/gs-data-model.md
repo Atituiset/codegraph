@@ -5,11 +5,11 @@
 ```
 kind       name             line   qualified_name
 ---------  ---------------  ----   --------------------------
-class      TaskRepository      5   TaskRepository
-method     complete           16   TaskRepository::complete
-method     notifyChange       12   TaskRepository::notifyChange
-function   completeTask       33   completeTask
-route      GET /health        16   src/server.ts::GET:/health
+class      TaskRepository      3   TaskRepository
+method     complete           19   TaskRepository::complete
+method     notifyChange        9   TaskRepository::notifyChange
+function   completeTask       34   completeTask
+route      GET /health         8   src/server.ts::GET:/health
 file       audit.ts            1   src/audit.ts
 ```
 
@@ -38,10 +38,10 @@ id = `${kind}:${sha256(`${filePath}:${kind}:${name}:${line}`).slice(0,32)}`
 
 | provenance | 含义 | 实证篇里的例子 |
 |---|---|---|
-| `tree-sitter` | 语法树上明摆着写的 | `completeTask → complete`(代码里真有括号) |
+| `NULL` | 语法树上明摆着写的(提取层写入时不打标,即 schema 默认值) | `completeTask → complete`(代码里真有括号) |
 | `heuristic` | 合成器推断的动态调用 | `notifyChange → logCompletion`(回调,AST 里看不见) |
 
-第三种 `scip` 是预留的外部格式。为什么要在边上刻"你是怎么来的"?因为下游的信任策略不同:explore 工具愿意骑 heuristic 边给你接通流程,但会显式标注"dynamic:",让你知道这段是推断、可以去 `registeredAt` 记录的接线位置核实。CRG 对比章里我们见过它的兄弟——置信度分数——同一问题的两种解法。
+类型定义里还预留了 `'tree-sitter'` 与 `'scip'` 两种取值(`src/types.ts`),前者是历史兼容位,后者为外部索引格式预留。为什么要在边上刻"你是怎么来的"?因为下游的信任策略不同:explore 工具愿意骑 heuristic 边给你接通流程,但会显式标注"dynamic:",让你知道这段是推断、可以去 `registeredAt` 记录的接线位置核实。CRG 对比章里我们见过它的兄弟——置信度分数——同一问题的两种解法。
 
 ## 两张辅助表:目录卡片和拆词本
 
@@ -53,8 +53,8 @@ schema.sql 里还有几张表容易让人困惑,各用一句话说清它们为�
 
 ```
 segment     name
-change      addChangeListener
 change      notifyChange
+change      onChange
 completion  logCompletion
 ```
 
@@ -66,7 +66,7 @@ completion  logCompletion
 
 为什么?"手写一份"意味着图纸有了副本,副本必然漂移——半年后有人在 schema.sql 加了新索引,忘了同步自愈名单,自愈就永远修不出正确的库。单一事实来源不是洁癖,是把"漂移"这类 bug 从类别上消灭。
 
-(migration v2–v9 每条背后的具体故事,见附录前的进阶篇;初读只需知道:版本号存在库里,打开时按需补课。)
+(migration v2–v16 每条背后的具体故事,见附录前的进阶篇;初读只需知道:版本号存在库里,`CURRENT_SCHEMA_VERSION` 在 `src/db/migrations.ts`,打开旧库时按需补课。)
 
 ## 带走三句话
 

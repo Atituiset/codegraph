@@ -14,26 +14,27 @@ CLAUDE.md 里有一段被验证过多次的结论，值得作为本章公理：
 
 ## 预算系统：随仓库规模单调
 
-explore 有两套预算，都是文件数的阶梯函数：
+explore 有两套预算，都是文件数的阶梯函数（`getExploreBudget` / `getExploreOutputBudget`，tools.ts:257 / :308）：
 
-| 索引文件数 | 调用预算 | 单次输出上限 | 单文件上限 |
-|---|---|---|---|
-| <500 | 1 | 18K chars | 3800 |
-| <5000 | 2 | 24K | 6500 |
-| <15000 | 3 | 24K | 7000 |
-| <25000 / ≥25000 | 4 / 5 | 24K | 7000 |
+| 索引文件数 | 调用预算 | 单次输出上限 | 默认文件数 | 单文件上限 |
+|---|---|---|---|---|
+| <150 | 1 | 13K chars | 4 | 3800 |
+| <500 | 1 | 18K | 5 | 3800 |
+| <5000 | 2 | 24K | 8 | 6500 |
+| <15000 | 3 | 24K | — | 7000 |
+| <25000 / ≥25000 | 4 / 5 | 24K | — | 7000 |
 
-两条硬性不变式写在维护文档里：**更大的档位绝不能拿到更小的 per-file 上限**（回归教训：Excalidraw 的 415KB App.tsx 在某档位只被切了 1% 出来，agent 被迫 Read 全文）；**输出总量不得超过 ~25K 字符**——超过 host 的内联 tool-result cap，结果会被外置成文件让 agent 再读回来，等于重新引入 Read。
+两条硬性不变式写在维护文档里：**更大的档位绝不能拿到更小的 per-file 上限**（回归教训：Excalidraw 的 415KB App.tsx 在某档位只被切了 1% 出来，agent 被迫 Read 全文）；**输出总量不得超过 ~25K 字符**——超过 host 的内联 tool-result cap，结果会被外置成文件让 agent 再读回来，等于重新引入 Read。小仓库（<500）额外关掉 relationships 等元信息区段：一次富调用就是全部答案，多余散文只是开销。
 
 预算分配算法（allocateExploreBudget）按 `score × worth × spineBoost` 加权，低于榜首一定比例的非核心文件整体剔除（cliff），每人保底 MIN_CHARS，pinned 文件（查询里点名的路径）权重至少追平最强候选。
 
 ## buildFlowFromNamedSymbols：explore 的心脏
 
-agent 调 explore 时给的是一串符号名（这是 initialize 指令反复训练的用法："flow 问题点名跨越流程的符号"）。`buildFlowFromNamedSymbols`（tools.ts:2515）把这些名字变成一条叙事线：
+agent 调 explore 时给的是一串符号名（这是 initialize 指令反复训练的用法："flow 问题点名跨越流程的符号"）。`buildFlowFromNamedSymbols` 把这些名字变成一条叙事线——注意它的住址：`src/graph/named-symbol-flow.ts` 而不是 tools.ts。本仓有条规矩：**被多个表面（explore 工具、ContextBuilder、viewer）消费的派生逻辑必须住在 `src/graph/`**，否则两个调用方迟早写出两个不一致的版本。主链搜索的几个关键参数都在这里定义：
 
 1. **Token 化**：≥3 字符、标识符形状、≤16 个；
 2. **共名消歧**：每个 token 经 findAllSymbols 解析；歧义的简单名只有在 container 类也被点名时才保留对应候选——查 "PmsProductServiceImpl list" 时 `list` 绑定到 Pms 的方法而不是 Oms 的同名方法；
-3. **主链搜索**：从每个种子 BFS（骑合成边），只接受同为 named 的终点，MAX_HOPS=7，**MAX_BRIDGE=1**——最多容忍连续一跳未命名桥接。这个上限是防走神的缰绳：没有它，搜索会一头扎进 god-function 的扇出里再也出不来；
+3. **主链搜索**：从每个种子 BFS（骑合成边），只接受同为 named 的终点，`DEFAULT_MAX_HOPS=7`（named-symbol-flow.ts:149），**`DEFAULT_MAX_BRIDGE=1`**（:162）——最多容忍连续一跳未命名桥接。这个上限是防走神的缰绳：没有它，搜索会一头扎进 god-function 的扇出里再也出不来；
 4. **断链诚实**：链不上的 token 触发三路补充——dynamic boundaries（扫描断链符号 body 里的 computed member/getattr/reflection/bus emit，最多 4 条 bullet 告诉 agent "这里有个运行时分发"）、boundary candidates（约定命名探测如 `onSave`/`handleSave`）、polymorphic boundaries（大同名家族 + 图上可见的多态实现者）。
 
 渲染时 Flow 区段每跳都带内联源码和接线点，合成边标注为 `dynamic: react-render via setState @file:line`——上一章的 registeredAt 在这里兑现价值。

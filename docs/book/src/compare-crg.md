@@ -28,11 +28,11 @@ taskRepo.onChange(logCompletion);   // 接线:在这里发生!
 
 `notifyChange()` 调用 `logCompletion` 这件事,**语法树上根本不存在**——AST 只能看到"遍历集合并调用元素"。静态解析到这里必然断链。两家怎么补?
 
-**CodeGraph 的办法:事后扫描 + 记录案发现场。** 建完图后,36 个"合成器"逐个扫图,认名字:`onChange` 匹配 registrar 约定(以 on/addListener/subscribe 开头),`notifyChange` 匹配 dispatcher 约定(含 notify/emit/fire),然后去注册行的源码里正则捕获实参名 `logCompletion`,凭空造一条边:
+**CodeGraph 的办法:事后扫描 + 记录案发现场。** 建完图后,43 个"合成器"逐个扫图,认名字:`onChange` 匹配 registrar 约定(以 on/addListener/subscribe 开头),`notifyChange` 匹配 dispatcher 约定(含 notify/emit/fire),然后去注册行的源码里正则捕获实参名 `logCompletion`,凭空造一条边:
 
 ```
 notifyChange ──calls──▶ logCompletion
-   标注:synthesizedBy=callback, registeredAt=src/server.ts:5
+   标注:synthesizedBy=callback, registeredAt=src/server.ts:6
 ```
 
 精髓在 `registeredAt` 这个标注——它记下了"这条边是在第 5 行接上的"。当 agent 半信半疑想验证时,直接看第 5 行就行,不用再去 Grep 全仓库找证据。(本书实证篇做过完整实验:方法名改成 `addChangeListener` 这种不在约定里的名字,合成器会**静默拒绝工作**——宁可断链不可造假边。)

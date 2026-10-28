@@ -33,7 +33,7 @@ MCP 工具层（tools.ts）                     ← codegraph_explore 等，面�
 
 ## 旅程一：索引一个仓库
 
-`codegraph init` 触发的 `indexAll` 是全仓最重的路径（`src/index.ts:471`）。把它当作全书的地标，后面每一章都会回到这条链上：
+`codegraph init` 触发的 `indexAll` 是全仓最重的路径（`src/index.ts:579`）。把它当作全书的地标，后面每一章都会回到这条链上：
 
 1. **互斥**：进程内 `indexMutex` + 跨进程 `FileLock`（`.codegraph/codegraph.lock`）双重把关；
 2. **fast-init**：全新数据库时临时切到 `journal_mode=MEMORY + synchronous=OFF`——反正索引中途崩了就整个重来，不值得为它付持久化代价；
@@ -42,7 +42,7 @@ MCP 工具层（tools.ts）                     ← codegraph_explore 等，面�
 5. **扫描与解析**：`scanDirectoryAsync` 产出文件列表，`ParseWorkerPool` 并行解析——但结果**按文件序**提交（第 5 章）；
 6. **解析引用**：`resolveReferencesBatched` 把提取阶段攒下的几十万个"名字引用"批量绑定为边（进阶篇第 1 章）；
 7. **两遍 deferred 解析**：`resolveChainedCallsViaConformance`（#750）和 `resolveDeferredThisMemberRefs`（#808）处理必须等 extends/implements 边建好才能解的引用；
-8. **合成动态边**：36 个 pass 扫描已解析的图，补上回调、事件、React 重渲染这类静态解析看不见的边（进阶篇第 2 章）；
+8. **合成动态边**：43 个 pass 扫描已解析的图，补上回调、事件、React 重渲染这类静态解析看不见的边（进阶篇第 2 章）；
 9. **收尾**：离线程 maintenance（PRAGMA optimize + WAL checkpoint）、按差值重算节点/边计数、盖 `indexed_with_extraction_version` 版本戳。
 
 注意第 8 步：合成边经常占图中边的 50% 以上。静态 AST 只能告诉你代码*写着*什么调用；而 agent 关心的"数据怎么流动"有一半发生在动态分发里。这是 CodeGraph 与朴素 "ctags + grep" 方案的本质区别。
@@ -73,15 +73,15 @@ daemon 里发生的事才是重点：`handleExplore` 先把查询拆成符号名
 
 | 目录 | 文件 | 行数 | 占比 | 职责 |
 |---|---|---|---|---|
-| `src/extraction/` | 54 | 23,939 | 38% | tree-sitter 包装、29 语言配置、worker 池 |
-| `src/resolution/` | 42 | 22,964 | 37% | 引用解析、同名消歧、框架、合成边 |
-| `src/mcp/` | 23 | 13,596 | 22% | 协议、daemon、watchdog、工具实现 |
-| `src/installer/` | 19 | 4,521 | 7% | 11 个 agent target 的安装器 |
-| `src/db/` | 5 | 4,465 | 7% | 连接、schema、QueryBuilder |
-| `src/bin/` | 5 | 2,800 | 4% | CLI 与进程引导 |
-| 其余(context/sync/graph/search/ui…) | ~15 | ~6,300 | 10% | 见下文 |
+| `src/extraction/` | 64 | 35,252 | 19% | tree-sitter 包装、31 个语言配置、worker 池 |
+| `src/resolution/` | 90 | 79,733 | 44% | 引用解析、同名消歧、框架、合成边 |
+| `src/mcp/` | 29 | 17,568 | 10% | 协议、daemon、watchdog、工具实现 |
+| `src/installer/` | 19 | 5,281 | 3% | 11 个 agent target 的安装器 |
+| `src/db/` | 11 | 8,252 | 5% | 连接、schema、QueryBuilder、WAL 阀门 |
+| `src/bin/` | 6 | 3,297 | 2% | CLI 与进程引导 |
+| 其余(context/sync/graph/search/ui-server…) | 75 | 32,410 | 18% | 见下文 |
 
-两个数字值得咀嚼。其一,**提取 + 解析占了全仓的四分之三**——这个项目的复杂度几乎全部在"把代码读对"上,存储和查询层加起来不到十分之一。SQLite 一共只用了 5 个文件就承载了全部数据需求,这是选对工具的复利。其二,`extraction/languages/` 下有 **29 个语言配置文件**,平均每语言几百行;而共享的 walker 是一个 6,790 行的单体。语言支持的边际成本是加法,这正是配置表模式的回报。
+两个数字值得咀嚼。其一,**解析层(`resolution/`)一个目录就占了全仓的 44%**,比提取层还多——这个项目的复杂度大头已经不在"把代码读出来",而在"把读出来的名字接对":同名消歧、框架路由、动态分发合成,每一类都是一堆事故编号沉淀下来的启发式。提取 + 解析合计约 63%。SQLite 一共只用了 11 个文件就承载了全部数据需求,这是选对工具的复利。其二,`extraction/languages/` 下有 **31 个语言提取器配置**(对应 29 门语法,个别配置共享语法),平均每语言几百行;而共享的 walker 是一个 9,745 行的单体 `tree-sitter.ts`。语言支持的边际成本是加法,这正是配置表模式的回报。
 
 再看顶层 import 依赖(自动扫描 `from '../<mod>` 得到,已剔除 languages/frameworks/targets 等子目录内部边):
 

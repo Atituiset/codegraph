@@ -28,7 +28,7 @@ export_statement                    ← export 关键字在这层!
 
 ## 第二步:认出"这是个函数"
 
-CodeGraph 不为每种语言写解析器,而是每语言交一张**配置表**(TypeScript 的在 `languages/typescript.ts`,全文仅 156 行):
+CodeGraph 不为每种语言写解析器,而是每语言交一张**配置表**(TypeScript 的在 `languages/typescript.ts`,全文 307 行):
 
 ```ts
 functionTypes: ['function_declaration', 'arrow_function', 'function_expression'],
@@ -38,7 +38,7 @@ callTypes:     ['call_expression'],
 nameField: 'name',  bodyField: 'body',
 ```
 
-然后一个 6790 行的通用 walker(`tree-sitter.ts`)拿着这棵树逐节点问配置表:"你的 functionTypes 认识 `function_declaration` 吗?"认识,于是调用 `extractFunction`:取 name 字段、生成 id、压入结果列表。
+然后一个 9,745 行的通用 walker(`tree-sitter.ts`)拿着这棵树逐节点问配置表:"你的 functionTypes 认识 `function_declaration` 吗?"认识,于是调用 `extractFunction`:取 name 字段、生成 id、压入结果列表。
 
 为什么不用 tree-sitter 官方更快的 Query(.scm)模式?因为 29 种语言要共享同一套后处理(docstring 提取、qualified_name 拼接、contains 边自动生成)——一个 walker 让这些逻辑只写一次,新语言的成本从"重写一遍"降为"填一张表"。速度损失换来的是覆盖广度,这笔账在静态分析工具里通常这么算。
 
@@ -66,11 +66,11 @@ walker 走到 `taskRepo.complete(id)` 这个 call_expression 时,发生了一件
 
 没有 target。类比:**快递单上只写了收件人姓名,没写地址。**
 
-为什么不顺手查清?因为提取跑在 8 个并行 worker 里,此刻别的文件可能还没入库——worker 根本无从知道 `complete` 定义在哪。强行查就得加锁串行,并行白做了。于是设计反转:**先收集所有纸条,等全部文件入库后,由专门的"分拣中心"(下一章的解析阶段)统一配送。** 这就是贯穿本书的"两阶段"结构的第一半。
+为什么不顺手查清?因为提取跑在并行 worker 里(默认池大小 `max(3, availableParallelism())`,可用 `CODEGRAPH_PARSE_WORKERS` 覆盖),此刻别的文件可能还没入库——worker 根本无从知道 `complete` 定义在哪。强行查就得加锁串行,并行白做了。于是设计反转:**先收集所有纸条,等全部文件入库后,由专门的"分拣中心"(下一章的解析阶段)统一配送。** 这就是贯穿本书的"两阶段"结构的第一半。
 
 ## 特例博物馆:三件展品
 
-真实语言的调用形态千奇百怪,walker 里塞了一个约 850 行的特例区。挑三件感受一下尺度:
+真实语言的调用形态千奇百怪,walker 里塞了一个约 1,200 行的特例区。挑三件感受一下尺度:
 
 **Erlang 的 spawn**:`spawn(Mod, Fun, Args)` 的真正被调方藏在参数里,不在调用位置。walker 维护一张 spawn 家族名单,命中就去参数里搜 (模块名, 函数名) 对,把它提升为边——否则所有 Erlang 进程的行为对图隐形。
 
@@ -80,7 +80,7 @@ walker 走到 `taskRepo.complete(id)` 这个 call_expression 时,发生了一件
 
 ## 最后一步:并行的计算,串行的提交
 
-8 个 worker 各自吐结果,谁先完成看 CPU 心情——但落库顺序**必须按文件序**。为什么如此较真?回忆数据模型章:同名引用最终绑定到"插入序最先"的候选。如果提交顺序随机,同一个仓库建两次索引会得到两张不同的图,增量 sync 和全量重建的结果也会漂移(实测差 4.3% 的边)。
+多个 worker 各自吐结果,谁先完成看 CPU 心情——但落库顺序**必须按文件序**。为什么如此较真?回忆数据模型章:同名引用最终绑定到"插入序最先"的候选。如果提交顺序随机,同一个仓库建两次索引会得到两张不同的图,增量 sync 和全量重建的结果也会漂移(实测差 4.3% 的边)。
 
 所以调度器维护一个游标:结果乱序到达先缓冲,轮到哪个文件才提交哪个。**并行是性能手段,确定性是正确性前提,后者永远赢。**
 

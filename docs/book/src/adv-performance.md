@@ -33,7 +33,7 @@ Valve 的关键洞察是一个反直觉的事实：**WAL 文件的尺寸永不�
 - **futility latch**：连续两次因 reader 钉住而放弃 ⇒ 60s 内禁用暂停机制，退化回旧行为而不是每次越界烧 20 个线程——这正是某次 OOM（exit 137）的事故现场教训；
 - **铁律：对活跃 writer 绝不 TRUNCATE**——truncate checkpoint 会赢锁竞争然后阻塞 writer 整个回填时长，超过 5s busy_timeout 直接令索引报 "database is locked" 失败。
 
-一段 290 行的代码里塞进了背压、基线、熔断、屏障四种模式，而且每一种都能指回一个具体事故。
+一段 343 行的代码里塞进了背压、基线、熔断、屏障四种模式，而且每一种都能指回一个具体事故。
 
 ## 内存纪律
 
@@ -52,7 +52,7 @@ WASM 与原生堆的内存问题在本仓有一套组合拳：
 
 **O(1) 重建**。中毒索引（#1065：160 万节点、多 GB WAL）上，逐行 DELETE 会触发 FTS delete-trigger 风暴，开索引之前就把 watchdog 拖死。`CodeGraph.recreate` 直接 unlink 数据库三件套再初始化——删除一个文件的复杂度从 O(nodes) 变成 O(1)。
 
-**reader rebind**。池 worker 的读连接定期关开（rebind，db/queries.ts:332）释放对 checkpoint 的钉扎，代价只是下次使用时重新 prepare 语句。性能账算得非常细：warm cache 保住、语句缓存重编，净收益为正。
+**reader rebind**。池 worker 的读连接定期关开（rebind，db/queries.ts:459）释放对 checkpoint 的钉扎，代价只是下次使用时重新 prepare 语句。性能账算得非常细：warm cache 保住、语句缓存重编，净收益为正。
 
 ## 收束：性能与正确性的同构
 

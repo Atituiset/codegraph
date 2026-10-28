@@ -83,8 +83,9 @@ target-linux/
 .kommandr/kommandr.db-wal
 .kommandr/kommandr.db-shm
 
-# mdbook build output
-docs/book/book/
+# vitepress build output
+docs/book/.vitepress/dist
+docs/book/.vitepress/cache
 
 # Stray git bundles from the Windows VM transfer (a lost `:` in an scp target
 # once committed three of these, 7.9 MB, into a feature branch).

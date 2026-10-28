@@ -68,7 +68,7 @@ agent 会话的头几秒是最脆弱的。engine.ts 用三招压冷启动：惰�
 
 ## 工具面总览
 
-tools.ts（7008 行）定义八个工具：search / callers / callees / impact / node / explore / status / files。但默认只暴露一个——`DEFAULT_MCP_TOOLS = new Set(['explore'])`（L1303），其余可用 env 重新启用。这个激进的决定来自实测：agent 面对 8 个工具时会平均用力，explore 的采用率反而下降；只给它一个，flow 问题的解决路径就唯一了。小于 500 文件的仓库进一步收缩为三件套。
+tools.ts（8,825 行）定义八个工具：search / callers / callees / impact / node / explore / status / files。但默认只暴露一个——`DEFAULT_MCP_TOOLS = new Set(['explore'])`（L1953），其余可用 env 重新启用。这个激进的决定来自实测：agent 面对 8 个工具时会平均用力，explore 的采用率反而下降；只给它一个，flow 问题的解决路径就唯一了。小仓库的差异不在工具面，而在 explore 的调用预算——<500 文件时一次调用就该答完（下一章的预算分档）。
 
 工具行为的核心设计在 explore 和 node 两个工具上，它们是"为 agent 设计工具"方法论的集中体现——值得单独一章（下一章）。
 

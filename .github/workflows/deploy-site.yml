@@ -40,14 +40,13 @@ jobs:
         run: |
           npm ci
           npm run build
-      - name: Build source-guide book with mdBook
-        uses: peaceiris/actions-mdbook@v2
-        with:
-          mdbook-version: '0.4.52'
-      - name: Mount book under site output
+      - name: Build source-guide book with VitePress
+        working-directory: docs/book
         run: |
-          mdbook build docs/book
-          cp -r docs/book/book site/dist/book
+          npm ci
+          npx vitepress build
+      - name: Mount book under site output
+        run: cp -r docs/book/.vitepress/dist site/dist/book
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

@@ -30,7 +30,7 @@ CodeGraph 通过 npm 包 `web-tree-sitter` + `tree-sitter-wasms` 使用 WASM 版
 
 **坑一：并发初始化竞态。** Node 20+ 上多个 `Parser` 并发加载不同 grammar 会触发上游 issue #2338 的崩溃。所以 `loadGrammarsForLanguages()` 用朴素的 for 循环顺序加载，注释直说原因。慢一点，但正确。
 
-**坑二：堆碎片化。** tree-sitter 的 WASM 堆在几千次解析后碎片累积，最终抛 `memory access out of bounds`。应对是周期性重建：worker 每 5000 次解析调用 `resetParser(language)` 删掉重来（`parse-worker.ts:65`），连接池回收 worker 时也顺手 reset。此外每棵解析树的 `tree.delete()` 放在 `finally` 里——树占用的原生堆对 V8 的 GC 完全不可见，不手动释放就永远不还。
+**坑二：堆碎片化。** tree-sitter 的 WASM 堆在几千次解析后碎片累积，最终抛 `memory access out of bounds`。应对是周期性重建：worker 每 5000 次解析调用 `resetParser(language)` 删掉重来（`parse-worker.ts:125`），连接池回收 worker 时也顺手 reset。此外每棵解析树的 `tree.delete()` 放在 `finally` 里——树占用的原生堆对 V8 的 GC 完全不可见，不手动释放就永远不还。
 
 **坑三：OOM 即崩溃。** 碎片化积累到极限就是硬崩。CodeGraph 的策略不是防御而是**拥抱**：捕获到 OOM 后原样 re-throw，worker 进程 `process.exit(1)`，池检测到死亡后用一个干净的新进程顶替。与其在半损坏的堆上挣扎，不如快速换血。
 
@@ -58,11 +58,11 @@ tree-sitter 官方推荐的高效模式是 Query API：写一份 `.scm` 文件�
 
 取而代之的是一个三件套结构：
 
-1. **声明式配置表**。每种语言一个 `LanguageExtractor`（接口在 `tree-sitter-types.ts:80`），内容全是 AST 节点类型名字符串：`functionTypes: ['function_declaration', 'arrow_function']`、`nameField: 'name'`、`bodyField: 'body'`……外加约 30 个可选 hook；
-2. **单一通用 walker**。6790 行的 `tree-sitter.ts` 只有一个手写递归的 `visitNode()`，按 `node.type` 对配置表做 if/else 分派：落在 `functionTypes` 就走 `extractMethod`，落在 `callTypes` 就走 `extractCall`……
+1. **声明式配置表**。每种语言一个 `LanguageExtractor`（接口在 `tree-sitter-types.ts:71`），内容全是 AST 节点类型名字符串：`functionTypes: ['function_declaration', 'arrow_function']`、`nameField: 'name'`、`bodyField: 'body'`……外加约 30 个可选 hook；
+2. **单一通用 walker**。9,745 行的 `tree-sitter.ts` 只有一个手写递归的 `visitNode()`，按 `node.type` 对配置表做 if/else 分派：落在 `functionTypes` 就走 `extractMethod`，落在 `callTypes` 就走 `extractCall`……
 3. **逃生 hook**。语言结构太特殊时（PHP 的 trait-use、Scala 的 val/var），`visitNode` hook 接管整棵子树，返回 true 则主 walker 不再下钻。
 
-这样设计的账是这样算的：30 种语言共享一个 walker 意味着"新增一种语言 = 一个几百行的配置文件"，而 `.scm` 方案意味着 30 份各自维护的模式文件加上一套跨语言的捕获命名约定。更重要的是，通用 walker 让**跨语言统一的后处理**成为可能——docstring 提取、qualified-name 构建、contains 边自动生成这些逻辑只写一次。
+这样设计的账是这样算的：三十来个语言配置共享一个 walker 意味着"新增一种语言 = 一个几百行的配置文件"，而 `.scm` 方案意味着三十来份各自维护的模式文件加上一套跨语言的捕获命名约定。更重要的是，通用 walker 让**跨语言统一的后处理**成为可能——docstring 提取、qualified-name 构建、contains 边自动生成这些逻辑只写一次。
 
 代价同样真实：`extractCall()` 一个方法约 850 行，里面塞着 Erlang MFA、Ruby receiver 字段名差异、C++ 链式调用编码等特例分支。这是可维护性与覆盖广度之间做出的明确取舍。
 
@@ -72,7 +72,7 @@ tree-sitter 官方推荐的高效模式是 Query API：写一份 `.scm` 文件�
 
 于是同一个文件可能走两条路：默认路由到内核（20 种主流语言）；含 `ERROR` 节点的文件、或内核不可用时，回落到 WASM。两条路必须产出**字节级一致**的图——为此 vendored WASM 中 TS/JS/Java/Python/Go/C/C++/Rust 等 grammar 与内核 Cargo.toml 锁定同一 revision，并有专门的 kernel-grammar-parity 测试断言 node-kind 表相等。
 
-这段历史最好的注脚是 `grammars.ts:275` 的注释：vendored wasm 不是为了绕过上游 bug 就是为了和内核保持同源。"图的中立性"（graph-neutrality）在这里被当作硬性验收标准。
+这段历史最好的注脚是 `grammars.ts:394` 的注释：`The kernel-grammar-parity test asserts this alignment; bump the crate and the vendored wasm together.`——内核 crate 与 vendored WASM 必须同生共死。"图的中立性"（graph-neutrality）在这里被当作硬性验收标准。
 
 ## 小结
 
